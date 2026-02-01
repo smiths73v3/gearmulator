@@ -19,7 +19,7 @@ namespace n2xJucePlugin
 		jucePluginEditorLib::patchManager::GroupType::DataSources,
 	};
 
-	PatchManager::PatchManager(Editor& _editor, Component* _root)
+	PatchManager::PatchManager(Editor& _editor, Rml::Element* _root)
 	: jucePluginEditorLib::patchManager::PatchManager(_editor, _root, g_groupTypes)
 	, m_editor(_editor)
 	, m_controller(_editor.getN2xController())
@@ -133,9 +133,9 @@ namespace n2xJucePlugin
 		return true;
 	}
 
-	bool PatchManager::parseFileData(pluginLib::patchDB::DataList& _results, const pluginLib::patchDB::Data& _data)
+	bool PatchManager::parseFileData(pluginLib::patchDB::DataList& _results, const pluginLib::patchDB::Data& _data, const std::string& _filename)
 	{
-		return jucePluginEditorLib::patchManager::PatchManager::parseFileData(_results, _data);
+		return jucePluginEditorLib::patchManager::PatchManager::parseFileData(_results, _data, _filename);
 	}
 
 	std::string PatchManager::getPatchName(const pluginLib::patchDB::Data& _sysex, const std::string& _defaultPatchName/* = {}*/)

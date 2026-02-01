@@ -20,7 +20,7 @@
 #include "synthLib/romLoader.h"
 
 #include "dsp56kEmu/fastmath.h"
-#include "dsp56kEmu/logging.h"
+#include "dsp56kBase/logging.h"
 
 #include "juceUiLib/messageBox.h"
 
@@ -154,7 +154,7 @@ namespace pluginLib
 				}
 				juce::Timer::callAfterDelay(2000, [this, msg]
 				{
-					genericUI::MessageBox::showOk(juce::MessageBoxIconType::WarningIcon,
+					genericUI::MessageBox::showOk(genericUI::MessageBox::Icon::Warning,
 						"Device Initialization failed", msg, 
 						[this]
 						{
@@ -259,6 +259,15 @@ namespace pluginLib
 
 	void Processor::saveChunkData(baseLib::BinaryStream& s)
 	{
+		// it is important that this is stored before other chunks to restore state to the remote properly
+		if (m_deviceType == DeviceType::Remote)
+		{
+			baseLib::ChunkWriter cw(s, "REMO", 1);
+			s.write(static_cast<int32_t>(m_deviceType));
+			s.write(m_remoteHost);
+			s.write(m_remotePort);
+		}
+
 		{
 			std::vector<uint8_t> buffer;
 			getPlugin().getState(buffer, synthLib::StateTypeGlobal);
@@ -325,6 +334,15 @@ namespace pluginLib
 		_cr.add("PROG", 1, [this](baseLib::BinaryStream& _binaryStream, uint32_t _version)
 		{
 			m_programName = _binaryStream.readString();
+		});
+
+		_cr.add("REMO", 1, [this](baseLib::BinaryStream& _binaryStream, uint32_t _version)
+		{
+			const auto type = static_cast<DeviceType>(_binaryStream.read<int32_t>());
+			const auto host = _binaryStream.readString();
+			const auto port = _binaryStream.read<uint32_t>();
+			if (type == DeviceType::Remote)
+				setRemoteDevice(host, port);
 		});
 
 		m_midiPorts.loadChunkData(_cr);
@@ -397,20 +415,23 @@ namespace pluginLib
 		return result;
 	}
 
-	std::optional<std::pair<const char*, uint32_t>> Processor::findResource(const std::string& _filename) const
+	std::optional<std::pair<const char*, uint32_t>> Processor::findResource(const BinaryDataRef& _binaryData,	const std::string& _filename)
 	{
-		const auto& bd = m_properties.binaryData;
-
-		for(uint32_t i=0; i<bd.listSize; ++i)
+		for(uint32_t i=0; i<_binaryData.listSize; ++i)
 		{
-			if (bd.originalFileNames[i] != _filename)
+			if (_binaryData.originalFileNames[i] != _filename)
 				continue;
 
 			int size = 0;
-			const auto res = bd.getNamedResourceFunc(bd.namedResourceList[i], size);
+			const auto res = _binaryData.getNamedResourceFunc(_binaryData.namedResourceList[i], size);
 			return {std::make_pair(res, static_cast<uint32_t>(size))};
 		}
 		return {};
+	}
+
+	std::optional<std::pair<const char*, uint32_t>> Processor::findResource(const std::string& _filename) const
+	{
+		return findResource(m_properties.binaryData, _filename);
 	}
 
 	std::string Processor::getDataFolder(const bool _useFxFolder) const
@@ -472,7 +493,7 @@ namespace pluginLib
 		}
 		catch(synthLib::DeviceException& e)
 		{
-			genericUI::MessageBox::showOk(juce::MessageBoxIconType::WarningIcon,
+			genericUI::MessageBox::showOk(genericUI::MessageBox::Icon::Warning,
 				getName().toStdString() + " - Failed to switch device type",
 				std::string("Failed to create device:\n\n") + 
 				e.what() + "\n\n");
@@ -662,7 +683,7 @@ namespace pluginLib
 				ev.c = message.getRawDataSize() > 1 ? message.getRawData()[2] : 0;
 			}
 
-			ev.offset = metadata.samplePosition;
+			ev.offset = std::max(0, metadata.samplePosition);
 
 			addMidiEvent(ev);
 		}
@@ -856,7 +877,7 @@ namespace pluginLib
 			{
 				juce::MessageManager::callAsync([e]
 				{
-					genericUI::MessageBox::showOk(juce::MessageBoxIconType::WarningIcon,
+					genericUI::MessageBox::showOk(genericUI::MessageBox::Icon::Warning,
 						"Device creation failed:",
 						std::string("The connection to the remote server has been lost and a reconnect failed. Processing mode has been switched to local processing\n\n") + 
 						e.what() + "\n\n");
@@ -887,7 +908,7 @@ namespace pluginLib
 		}
 		catch(const synthLib::DeviceException& e)
 		{
-			genericUI::MessageBox::showOk(juce::MessageBoxIconType::WarningIcon,
+			genericUI::MessageBox::showOk(genericUI::MessageBox::Icon::Warning,
 				"Device creation failed:",
 				std::string("Failed to create device:\n\n") + 
 				e.what() + "\n\n");

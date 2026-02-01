@@ -54,9 +54,9 @@ namespace baseLib::filesystem
 #ifdef USE_DIRENT
         char temp[1024];
         getcwd(temp, sizeof(temp));
-        return temp;
+        return validatePath(temp);
 #else
-		return std::filesystem::current_path().string();
+		return validatePath(std::filesystem::current_path().string());
 #endif
     }
 
@@ -264,11 +264,6 @@ namespace baseLib::filesystem
             return true;
 
         return lowercase(getExtension(_filename)) == lowercase(_extension);
-    }
-
-    bool writeFile(const std::string& _filename, const std::vector<uint8_t>& _data)
-    {
-        return writeFile(_filename, _data.data(), _data.size());
     }
 
     bool writeFile(const std::string& _filename, const uint8_t* _data, size_t _size)

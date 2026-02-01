@@ -8,7 +8,7 @@
 
 #include "mqLib/mqstate.h"
 
-#include "dsp56kEmu/logging.h"
+#include "dsp56kBase/logging.h"
 
 namespace mqJucePlugin
 {
@@ -63,12 +63,12 @@ namespace mqJucePlugin
 	    m_frontPanel = _frontPanel;
 	}
 
-	void Controller::sendSingle(const std::vector<uint8_t>& _sysex)
+	void Controller::sendSingle(const synthLib::SysexBuffer& _sysex)
 	{
 		sendSingle(_sysex, getCurrentPart());
 	}
 
-	void Controller::sendSingle(const std::vector<uint8_t>& _sysex, const uint8_t _part)
+	void Controller::sendSingle(const synthLib::SysexBuffer& _sysex, const uint8_t _part)
 	{
 		auto data = _sysex;
 
@@ -170,14 +170,22 @@ namespace mqJucePlugin
 
 	    if(bank == static_cast<uint8_t>(mqLib::MidiBufferNum::SingleEditBufferSingleMode) && prog == static_cast<uint8_t>(mqLib::MidiSoundLocation::EditBufferCurrentSingle))
 	    {
+			const auto nameChanged = m_singleEditBuffer.name != patch.name;
 		    m_singleEditBuffer = patch;
+			if (nameChanged)
+				onPatchNameChanged(0);
 
 			if(!isMultiMode())
 				applyPatchParameters(_params, 0);
 	    }
 	    else if(bank == static_cast<uint8_t>(mqLib::MidiBufferNum::SingleEditBufferMultiMode))
 	    {
+			const auto nameChanged = m_singleEditBuffers[prog].name != patch.name;
+
 		    m_singleEditBuffers[prog] = patch;
+
+			if (nameChanged)
+				onPatchNameChanged(prog);
 
     		if (isMultiMode())
 				applyPatchParameters(_params, prog);
@@ -334,7 +342,7 @@ namespace mqJucePlugin
 		selectPreset(-1);
 	}
 
-	std::vector<uint8_t> Controller::createSingleDump(const mqLib::MidiBufferNum _buffer, const mqLib::MidiSoundLocation _location, const uint8_t _locationOffset, const uint8_t _part) const
+	synthLib::SysexBuffer Controller::createSingleDump(const mqLib::MidiBufferNum _buffer, const mqLib::MidiSoundLocation _location, const uint8_t _locationOffset, const uint8_t _part) const
 	{
 		pluginLib::MidiPacket::Data data;
 
@@ -342,7 +350,7 @@ namespace mqJucePlugin
 		data.insert(std::make_pair(pluginLib::MidiDataType::Bank, static_cast<uint8_t>(_buffer)));
 		data.insert(std::make_pair(pluginLib::MidiDataType::Program, static_cast<uint8_t>(_location) + _locationOffset));
 
-		std::vector<uint8_t> dst;
+		synthLib::SysexBuffer dst;
 
 		if (!createMidiDataFromPacket(dst, midiPacketName(SingleDump), data, _part))
 			return {};
@@ -350,7 +358,7 @@ namespace mqJucePlugin
 		return dst;
 	}
 
-	std::vector<uint8_t> Controller::createSingleDump(mqLib::MidiBufferNum _buffer, mqLib::MidiSoundLocation _location, const uint8_t _locationOffset, const pluginLib::MidiPacket::AnyPartParamValues& _values) const
+	synthLib::SysexBuffer Controller::createSingleDump(mqLib::MidiBufferNum _buffer, mqLib::MidiSoundLocation _location, const uint8_t _locationOffset, const pluginLib::MidiPacket::AnyPartParamValues& _values) const
 	{
 		pluginLib::MidiPacket::Data data;
 
@@ -358,7 +366,7 @@ namespace mqJucePlugin
 		data.insert(std::make_pair(pluginLib::MidiDataType::Bank, static_cast<uint8_t>(_buffer)));
 		data.insert(std::make_pair(pluginLib::MidiDataType::Program, static_cast<uint8_t>(_location) + _locationOffset));
 
-		std::vector<uint8_t> dst;
+		synthLib::SysexBuffer dst;
 
 		if (!createMidiDataFromPacket(dst, midiPacketName(SingleDump), data, _values))
 			return {};
@@ -366,7 +374,7 @@ namespace mqJucePlugin
 		return dst;
 	}
 
-	bool Controller::parseSingle(pluginLib::MidiPacket::Data& _data, pluginLib::MidiPacket::AnyPartParamValues& _paramValues, const std::vector<uint8_t>& _sysex) const
+	bool Controller::parseSingle(pluginLib::MidiPacket::Data& _data, pluginLib::MidiPacket::AnyPartParamValues& _paramValues, const synthLib::SysexBuffer& _sysex) const
 	{
 		if(parseMidiPacket(SingleDump, _data, _paramValues, _sysex))
 			return true;
@@ -387,6 +395,17 @@ namespace mqJucePlugin
 	        _values[idx] = static_cast<uint8_t>(_value[i]);
 	    }
 	    return true;
+	}
+
+	const std::string& Controller::getPatchName(const uint8_t _part) const
+	{
+		if (isMultiMode() && _part < m_singleEditBuffers.size())
+			return m_singleEditBuffers[_part].name;
+		if (!isMultiMode() && _part == 0)
+			return m_singleEditBuffer.name;
+
+		static std::string empty;
+		return empty;
 	}
 
 	void Controller::selectPreset(int _offset)
@@ -421,7 +440,7 @@ namespace mqJucePlugin
 	*/  }
 	}
 
-	void Controller::sendParameterChange(const pluginLib::Parameter& _parameter, const pluginLib::ParamValue _value)
+	void Controller::sendParameterChange(const pluginLib::Parameter& _parameter, const pluginLib::ParamValue _value, pluginLib::Parameter::Origin _origin)
 	{
 		const auto &desc = _parameter.getDescription();
 

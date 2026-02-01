@@ -108,12 +108,7 @@ namespace virus
             else if(name == midiPacketName(MidiPacketType::MultiDump))
                 parseMulti(_msg, data, parameterValues);
             else if(name == midiPacketName(MidiPacketType::ParameterChange))
-            {
-				// TI DSP sends parameter changes back as sysex, unsure why. Ignore them as it stops
-				// host automation because the host thinks we "edit" the parameter
-				if(_source != synthLib::MidiEventSource::Device)
-	                parseParamChange(data, _source);
-            }
+	            parseParamChange(data, _source);
             else
             {
 		        LOG("Controller: Begin unhandled SysEx! --");
@@ -143,6 +138,18 @@ namespace virus
 		const auto value = _data.find(pluginLib::MidiDataType::ParameterValue)->second;
 
         const auto& partParams = findSynthParam(part == virusLib::SINGLE ? 0 : part, page, index);
+
+		if (!partParams.empty() && partParams.front()->getDescription().name == g_paramPlayMode)
+		{
+			// always allow play mode change as the UI will update based on the play mode parameter, we must not
+			// drop it even if sent from the synth as it would desync the UI
+		}
+		else if(_source == synthLib::MidiEventSource::Device)
+		{
+			// TI DSP sends parameter changes back as sysex, unsure why. Ignore them as it stops
+			// host automation because the host thinks we "edit" the parameter
+			return;
+		}
 
     	if (partParams.empty() && part != 0 && part != virusLib::SINGLE)
 		{
@@ -289,7 +296,7 @@ namespace virus
 		return getParameter(g_paramPlayMode, 0)->getUnnormalizedValue();
 	}
 
-	juce::String Controller::getCurrentPartPresetName(const uint8_t _part) const
+	std::string Controller::getCurrentPartPresetName(const uint8_t _part) const
 	{
         std::string name;
 		for (int i=0; i<kNameLength; i++)
@@ -687,7 +694,7 @@ namespace virus
         return pluginLib::Controller::sendSysEx(midiPacketName(_type), _params);
     }
 
-    void Controller::sendParameterChange(const pluginLib::Parameter& _parameter, const pluginLib::ParamValue _value)
+    void Controller::sendParameterChange(const pluginLib::Parameter& _parameter, const pluginLib::ParamValue _value, pluginLib::Parameter::Origin _origin)
     {
         const auto& desc = _parameter.getDescription();
 
@@ -706,7 +713,7 @@ namespace virus
     	return sendSysEx(MidiPacketType::ParameterChange, data);
     }
 
-    std::vector<uint8_t> Controller::createSingleDump(uint8_t _part, uint8_t _bank, uint8_t _program)
+    synthLib::SysexBuffer Controller::createSingleDump(uint8_t _part, uint8_t _bank, uint8_t _program)
     {
 	    pluginLib::MidiPacket::Data data;
 
@@ -714,7 +721,7 @@ namespace virus
         data.insert(std::make_pair(pluginLib::MidiDataType::Bank, _bank));
         data.insert(std::make_pair(pluginLib::MidiDataType::Program, _program));
 
-        std::vector<uint8_t> dst;
+        synthLib::SysexBuffer dst;
 
     	if(!createMidiDataFromPacket(dst, midiPacketName(MidiPacketType::SingleDump), data, _part))
             return {};
@@ -722,7 +729,7 @@ namespace virus
         return dst;
     }
 
-    std::vector<uint8_t> Controller::createSingleDump(MidiPacketType _packet, uint8_t _bank, uint8_t _program, const pluginLib::MidiPacket::AnyPartParamValues& _paramValues)
+    synthLib::SysexBuffer Controller::createSingleDump(MidiPacketType _packet, uint8_t _bank, uint8_t _program, const pluginLib::MidiPacket::AnyPartParamValues& _paramValues)
     {
         const auto* m = getMidiPacket(midiPacketName(_packet));
 		assert(m && "midi packet not found");
@@ -746,7 +753,7 @@ namespace virus
         return dst;
     }
 
-    std::vector<uint8_t> Controller::modifySingleDump(const std::vector<uint8_t>& _sysex, const virusLib::BankNumber _newBank, const uint8_t _newProgram) const
+    synthLib::SysexBuffer Controller::modifySingleDump(const synthLib::SysexBuffer& _sysex, const virusLib::BankNumber _newBank, const uint8_t _newProgram) const
     {
         auto* m = getMidiPacket(midiPacketName(MidiPacketType::SingleDump));
         assert(m);
@@ -807,12 +814,12 @@ namespace virus
         return temp;
     }
 
-    bool Controller::activatePatch(const std::vector<unsigned char>& _sysex)
+    bool Controller::activatePatch(const synthLib::SysexBuffer& _sysex)
     {
 		return activatePatch(_sysex, isMultiMode() ? getCurrentPart() : static_cast<uint8_t>(virusLib::ProgramType::SINGLE));
     }
 
-    bool Controller::activatePatch(const std::vector<unsigned char>& _sysex, uint32_t _part)
+    bool Controller::activatePatch(const synthLib::SysexBuffer& _sysex, uint32_t _part)
     {
         if(_part == virusLib::ProgramType::SINGLE)
         {

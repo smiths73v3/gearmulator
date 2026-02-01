@@ -3,13 +3,20 @@
 #include "weData.h"
 #include "weGraph.h"
 #include "weGraphData.h"
-#include "xtWaveEditorStyle.h"
-
-#include "juce_gui_basics/juce_gui_basics.h"
 
 #include "jucePluginLib/midipacket.h"
 
-#include "juceUiLib/button.h"
+#include "juceRmlUi/rmlMenu.h"
+
+namespace juce
+{
+	class FileChooser;
+}
+
+namespace Rml
+{
+	class Element;
+}
 
 namespace xtJucePlugin
 {
@@ -21,14 +28,14 @@ namespace xtJucePlugin
 	class WaveTree;
 	class Editor;
 
-	class WaveEditor : public juce::Component, juce::ComponentMovementWatcher
+	class WaveEditor
 	{
 	public:
-		explicit WaveEditor(Editor& _editor, const juce::File& _cacheDir);
+		explicit WaveEditor(Editor& _editor, Rml::Element* _parent, const juce::File& _cacheDir);
 		WaveEditor() = delete;
 		WaveEditor(const WaveEditor&) = delete;
 		WaveEditor(WaveEditor&&) = delete;
-		~WaveEditor() override;
+		~WaveEditor();
 
 		WaveEditor& operator = (const WaveEditor&) = delete;
 		WaveEditor& operator = (WaveEditor&&) = delete;
@@ -36,13 +43,11 @@ namespace xtJucePlugin
 		void initialize();
 		void destroy();
 
-		void onReceiveWave(const pluginLib::MidiPacket::Data& _data, const std::vector<uint8_t>& _msg);
-		void onReceiveTable(const pluginLib::MidiPacket::Data& _data, const std::vector<uint8_t>& _msg);
+		void onReceiveWave(const pluginLib::MidiPacket::Data& _data, const synthLib::SysexBuffer& _msg);
+		void onReceiveTable(const pluginLib::MidiPacket::Data& _data, const synthLib::SysexBuffer& _msg);
 
 		const WaveEditorData& getData() const { return m_data; }
 		WaveEditorData& getData() { return m_data; }
-
-		const WaveEditorStyle& getStyle() const { return m_style; }
 
 		Editor& getEditor() const { return m_editor; }
 		GraphData& getGraphData() { return m_graphData; }
@@ -54,12 +59,12 @@ namespace xtJucePlugin
 
 		xt::TableId getSelectedTable() const { return m_selectedTable; }
 
-		juce::PopupMenu createCopyToSelectedTableMenu(xt::WaveId _id);
-		static juce::PopupMenu createRamWavesPopupMenu(const std::function<void(xt::WaveId)>& _callback);
+		juceRmlUi::Menu createCopyToSelectedTableMenu(xt::WaveId _id);
+		static juceRmlUi::Menu createRamWavesPopupMenu(const std::function<void(xt::WaveId)>& _callback);
 
-		void filesDropped(std::map<xt::WaveId, xt::WaveData>& _waves, std::map<xt::TableId, xt::TableData>& _tables, const juce::StringArray& _files);
+		void filesDropped(std::map<xt::WaveId, xt::WaveData>& _waves, std::map<xt::TableId, xt::TableData>& _tables, const std::vector<std::string>& _files);
 
-		void openGraphPopupMenu(const Graph& _graph, const juce::MouseEvent& _event);
+		void openGraphPopupMenu(const Graph& _graph, Rml::Event& _event);
 
 		void exportAsSyx(const xt::WaveId& _id, const xt::WaveData& _data);
 		void exportAsMid(const xt::WaveId& _id, const xt::WaveData& _data);
@@ -73,10 +78,10 @@ namespace xtJucePlugin
 
 		void exportAsWav(const std::string& _filename, const std::vector<int8_t>& _data) const;
 
-		void exportToFile(const std::string& _filename, const std::vector<std::vector<uint8_t>>& _sysex, bool _midi) const;
-		void exportToFile(const std::string& _filename, const std::vector<uint8_t>& _sysex, bool _midi) const
+		void exportToFile(const std::string& _filename, const synthLib::SysexBufferList& _sysex, bool _midi) const;
+		void exportToFile(const std::string& _filename, const synthLib::SysexBuffer& _sysex, bool _midi) const
 		{
-			return exportToFile(_filename, std::vector<std::vector<uint8_t>>{ _sysex }, _midi);
+			return exportToFile(_filename, synthLib::SysexBufferList{ _sysex }, _midi);
 		}
 
 		void selectImportFile(const std::function<void(const juce::String&)>& _callback);
@@ -85,11 +90,6 @@ namespace xtJucePlugin
 		std::optional<xt::WaveData> importWaveFile(const std::string& _filename) const;
 
 	private:
-		// ComponentMovementWatcher
-		void componentVisibilityChanged() override { checkFirstTimeVisible(); }
-		void componentPeerChanged() override { checkFirstTimeVisible(); }
-		void componentMovedOrResized(bool wasMoved, bool wasResized) override { checkFirstTimeVisible(); }
-
 		void checkFirstTimeVisible();
 		void onFirstTimeVisible();
 
@@ -101,10 +101,11 @@ namespace xtJucePlugin
 		bool saveWaveTo(xt::WaveId _target);
 
 		Editor& m_editor;
+		Rml::Element* m_parent = nullptr;
 
-		std::unique_ptr<WaveTree> m_waveTree;
-		std::unique_ptr<ControlTree> m_controlTree;
-		std::unique_ptr<TablesTree> m_tablesTree;
+		WaveTree* m_waveTree;
+		ControlTree* m_controlTree;
+		TablesTree* m_tablesTree;
 
 		std::unique_ptr<GraphFreq> m_graphFreq;
 		std::unique_ptr<GraphPhase> m_graphPhase;
@@ -118,8 +119,8 @@ namespace xtJucePlugin
 		xt::TableId m_selectedTable;
 		xt::WaveId m_selectedWave;
 
-		WaveEditorStyle m_style;
-
 		std::unique_ptr<juce::FileChooser> m_fileChooser;
+
+		baseLib::EventListener<juceRmlUi::RmlComponent*> m_onUpdate;
 	};
 }

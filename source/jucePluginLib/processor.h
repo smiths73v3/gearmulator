@@ -1,7 +1,6 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_audio_devices/juce_audio_devices.h>
 
 #include "bypassBuffer.h"
 #include "controller.h"
@@ -139,6 +138,7 @@ namespace pluginLib
 
 		auto& getMidiPorts() { return m_midiPorts; }
 
+		static std::optional<std::pair<const char*, uint32_t>> findResource(const BinaryDataRef& _binaryData, const std::string& _filename);
 		std::optional<std::pair<const char*, uint32_t>> findResource(const std::string& _filename) const;
 
 		std::string getDataFolder(bool _useFxFolder = false) const;

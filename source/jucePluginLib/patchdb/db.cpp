@@ -12,7 +12,7 @@
 #include "baseLib/binarystream.h"
 #include "baseLib/filesystem.h"
 
-#include "dsp56kEmu/logging.h"
+#include "dsp56kBase/logging.h"
 
 namespace pluginLib::patchDB
 {
@@ -603,7 +603,8 @@ namespace pluginLib::patchDB
 	PatchPtr DB::requestPatchForPart(const uint32_t _part, const uint64_t _userData)
 	{
 		Data data;
-		requestPatchForPart(data, _part, _userData);
+		if (!requestPatchForPart(data, _part, _userData) || data.empty())
+			return {};
 		return initializePatch(std::move(data), {});
 	}
 
@@ -766,14 +767,14 @@ namespace pluginLib::patchDB
 		if (!baseLib::filesystem::readFile(data, _file) || data.empty())
 			return false;
 
-		return parseFileData(_results, data);
+		return parseFileData(_results, data, baseLib::filesystem::getFilenameWithoutPath(_file));
 	}
 
 	bool DB::loadLocalStorage(DataList& _results, const DataSource& _ds)
 	{
 		const auto file = getLocalStorageFile(_ds);
 
-		std::vector<uint8_t> data;
+		synthLib::SysexBuffer data;
 		if (!baseLib::filesystem::readFile(data, file.getFullPathName().toStdString()))
 			return false;
 
@@ -806,7 +807,7 @@ namespace pluginLib::patchDB
 		return !files.empty();
 	}
 
-	bool DB::parseFileData(DataList& _results, const Data& _data)
+	bool DB::parseFileData(DataList& _results, const Data& _data, const std::string& _filename)
 	{
 		return synthLib::MidiToSysex::extractSysexFromData(_results, _data);
 	}
@@ -952,7 +953,7 @@ namespace pluginLib::patchDB
 		if (ds->origin == DataSourceOrigin::Manual)
 			addDsToList();
 
-		std::vector<std::vector<uint8_t>> data;
+		DataList data;
 
 		if(loadData(data, ds) && !data.empty())
 		{

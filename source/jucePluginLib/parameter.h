@@ -34,6 +34,7 @@ namespace pluginLib
 		baseLib::Event<Parameter*> onValueChanged;
 
 		Parameter(Controller& _controller, const Description& _desc, uint8_t _partNum, int _uniqueId, const PartFormatter& _partFormatter);
+		~Parameter() override;
 
         juce::Value& getValueObject() { return m_value; }
 
@@ -93,23 +94,26 @@ namespace pluginLib
 		void pushChangeGesture();
 		void popChangeGesture();
 
+		static bool requiresGesture(Origin _origin);
+
 	private:
 
 		struct ScopedChangeGesture
 		{
-			explicit ScopedChangeGesture(Parameter& _p);
+			explicit ScopedChangeGesture(Parameter& _p, Origin _origin);
 			~ScopedChangeGesture();
 
 		private:
 			Parameter& m_parameter;
+			const Origin m_origin;
 		};
 
-        static juce::String genId(const Description &d, int part, int uniqueId);
+        static juce::ParameterID genId(const Description &d, int part, int uniqueId);
 		void valueChanged(juce::Value &) override;
 		void setDerivedValue(const int _value);
-		void sendToSynth();
+		void sendToSynth(Origin _origin);
 		static uint64_t milliseconds();
-		void sendParameterChangeDelayed(ParamValue _value, uint32_t _uniqueId);
+		void sendParameterChangeDelayed(ParamValue _value, uint32_t _uniqueId, Origin _origin);
 		void forwardToDerived(const int _newValue);
 		void notifyHost(float _value);
 

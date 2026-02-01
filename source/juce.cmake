@@ -18,38 +18,45 @@ set(USE_Standalone ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_Standalone})
 set(JUCE_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 set(juce_formats "")
+set(plugin_formats "")
 
-if(USE_AU)
+if(USE_AU AND APPLE)
 	set(juce_formats AU)
+	set(plugin_formats AU)
 	add_custom_target(PluginFormat_AU)
 	set_property(TARGET PluginFormat_AU PROPERTY FOLDER CustomTargets)
 endif()
 
 if(USE_VST2 AND JUCE_GLOBAL_VST2_SDK_PATH)
     list(APPEND juce_formats VST)
+	list(APPEND plugin_formats VST2)
 	add_custom_target(PluginFormat_VST2)
 	set_property(TARGET PluginFormat_VST2 PROPERTY FOLDER CustomTargets)
 endif()
 
 if(USE_VST3)
     list(APPEND juce_formats VST3)
+	list(APPEND plugin_formats VST3)
 	add_custom_target(PluginFormat_VST3)
 	set_property(TARGET PluginFormat_VST3 PROPERTY FOLDER CustomTargets)
 endif()
 
 if(USE_LV2)
     list(APPEND juce_formats LV2)
+    list(APPEND plugin_formats LV2)
 	add_custom_target(PluginFormat_LV2)
 	set_property(TARGET PluginFormat_LV2 PROPERTY FOLDER CustomTargets)
 endif()
 
 if(USE_CLAP)
+    list(APPEND plugin_formats CLAP)
 	add_custom_target(PluginFormat_CLAP)
 	set_property(TARGET PluginFormat_CLAP PROPERTY FOLDER CustomTargets)
 endif()
 
 if(USE_Standalone)
     list(APPEND juce_formats Standalone)
+    list(APPEND plugin_formats Standalone)
 	add_custom_target(PluginFormat_Standalone)
 	set_property(TARGET PluginFormat_Standalone PROPERTY FOLDER CustomTargets)
 endif()
@@ -66,6 +73,7 @@ target_link_libraries(juce_plugin_modules PRIVATE
     juce::juce_audio_devices
     juce::juce_audio_processors
 	juce::juce_cryptography
+	juce::juce_opengl
 )
 
 target_compile_definitions(juce_plugin_modules PUBLIC
@@ -130,7 +138,7 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 		VST3_AUTO_MANIFEST TRUE                           # While generating a moduleinfo.json is nice, Juce does not properly package using cpack on Win/Linux
 		                                                  # and completely fails on Linux if we change the suffix to .vst3, so we skip that completely for now
 		BUNDLE_ID "com.theusualsuspects.${productName}"
-		LV2URI "http://theusualsuspects.lv2.${productName}"
+		LV2URI "http://theusualsuspects.lv2/${productName}"
 	)
 
 	target_sources(${targetName} PRIVATE ${SOURCES} serverPlugin.cpp)
@@ -268,7 +276,7 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 			-DIDPLUGIN=${plugin4CC}
 			-DBINDIR=${CMAKE_BINARY_DIR}
 			-DCOMPONENT_NAME=${productName}
-			-DCPACK_FILE=${CPACK_PACKAGE_NAME}-${CMAKE_PROJECT_VERSION}-${CPACK_SYSTEM_NAME}-${productName}-AU.zip
+			-DCPACK_FILE=${CPACK_PACKAGE_NAME}-${productName}-AU-${CMAKE_PROJECT_VERSION}-${CPACK_SYSTEM_NAME}.zip
 			-P ${JUCE_CMAKE_DIR}/runAuValidation.cmake)
 		set_tests_properties(${targetName}_AU_Validate PROPERTIES LABELS "PluginTest")
 	endif()
@@ -294,6 +302,25 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 #	if(USE_CLAP)
 #		addPluginTest(${targetName}_CLAP)
 #	endif()
+
+	set_target_properties(${targetName} PROPERTIES TUS_PRODUCT_NAME "${productName}")
+	set_target_properties(${targetName} PROPERTIES TUS_PLUGIN_FORMATS "${juce_formats}")
+	set_target_properties(${targetName} PROPERTIES TUS_PLUGIN_IS_SYNTH ${isSynth})
+	set_target_properties(${targetName} PROPERTIES TUS_PLUGIN_4CC ${plugin4CC})
+
+	if(${isSynth})
+		tus_exportTarget(${targetName})
+	endif()
+
+	# ---------- add changelog to each plugin ----------
+	tus_registerChangelog(${targetName})
+
+	foreach(format IN LISTS plugin_formats)
+		string(REPLACE "FX" "" productNameClean ${productName})
+		install(FILES "${CMAKE_SOURCE_DIR}/doc/changelog_split/changelog_${productNameClean}.txt"
+			DESTINATION .
+			COMPONENT ${productName}-${format})
+	endforeach()
 
 	# --------- Server Plugin ---------
 

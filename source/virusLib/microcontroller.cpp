@@ -258,6 +258,40 @@ bool Microcontroller::sendPreset(const uint8_t program, const TPreset& preset, c
 
 	std::lock_guard lock(m_mutex);
 
+	if(isMulti)
+	{
+		// if we want to send a new preset while still waiting for the upgraded one, ignore as its obsolete
+		if (m_sentPresetProgram == 0 && m_sentPresetIsMulti)
+			m_sentPresetProgram = 0xff;
+
+		m_multiEditBuffer = preset;
+
+		m_globalSettings[PLAY_MODE] = PlayModeMulti;
+	}
+	else
+	{
+		if(program == SINGLE)
+		{
+			m_globalSettings[PLAY_MODE] = PlayModeSingle;
+			m_singleEditBuffer = preset;
+
+			// if we want to send a new preset while still waiting for the upgraded one, ignore as its obsolete
+			 if (!m_sentPresetIsMulti && m_sentPresetProgram == SINGLE)
+				m_sentPresetProgram = 0xff;
+		}
+		else if(program < m_singleEditBuffers.size())
+		{
+			if(program >= getPartCount())
+				return false;
+
+			// if we want to send a new preset while still waiting for the upgraded one, ignore as its obsolete
+			if (!m_sentPresetIsMulti && m_sentPresetProgram == program)
+				m_sentPresetProgram = 0xff;
+
+			m_singleEditBuffers[program] = preset;
+		}
+	}
+
 	if(m_loadingState || waitingForPresetReceiveConfirmation())
 	{
 		// if we write a multi or a multi mode single, remove a pending single for single mode
@@ -291,28 +325,6 @@ bool Microcontroller::sendPreset(const uint8_t program, const TPreset& preset, c
 	}
 
 	receiveUpgradedPreset();
-
-	if(isMulti)
-	{
-		m_multiEditBuffer = preset;
-
-		m_globalSettings[PLAY_MODE] = PlayModeMulti;
-	}
-	else
-	{
-		if(program == SINGLE)
-		{
-			m_globalSettings[PLAY_MODE] = PlayModeSingle;
-			m_singleEditBuffer = preset;
-		}
-		else if(program < m_singleEditBuffers.size())
-		{
-			if(program >= getPartCount())
-				return false;
-
-			m_singleEditBuffers[program] = preset;
-		}
-	}
 
 	writeHostBitsWithWait(0,1);
 	// Send header
@@ -487,7 +499,7 @@ bool Microcontroller::sendMIDI(const SMidiEvent& _ev, FrontpanelState* _fpState/
 	return true;
 }
 
-bool Microcontroller::sendSysex(const std::vector<uint8_t>& _data, std::vector<SMidiEvent>& _responses, const MidiEventSource _source)
+bool Microcontroller::sendSysex(const synthLib::SysexBuffer& _data, std::vector<SMidiEvent>& _responses, const MidiEventSource _source)
 {
 	if (_data.size() < 7)
 		return true;	// invalid sysex or not directed to us
@@ -1244,7 +1256,7 @@ PresetVersion Microcontroller::getPresetVersion(const uint8_t v)
 	return A;
 }
 
-uint8_t Microcontroller::calcChecksum(const std::vector<uint8_t>& _data, const size_t _offset, const size_t _count/* = std::numeric_limits<size_t>::max()*/)
+uint8_t Microcontroller::calcChecksum(const synthLib::SysexBuffer& _data, const size_t _offset, const size_t _count/* = std::numeric_limits<size_t>::max()*/)
 {
 	uint8_t cs = 0;
 
@@ -1378,6 +1390,12 @@ void Microcontroller::receiveUpgradedPreset()
 
 	if(upgradedPreset.empty())
 		return;
+
+	if (m_sentPresetProgram == 0xff)
+	{
+		LOG("Ignoring upgraded preset as it became obsolete");
+		return;
+	}
 
 	LOG("Replacing edit buffer for " << (m_sentPresetIsMulti ? "multi" : "single") << " program " << static_cast<int>(m_sentPresetProgram) << " with upgraded preset");
 

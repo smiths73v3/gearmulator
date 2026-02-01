@@ -12,7 +12,7 @@ namespace xtJucePlugin
 	class PatchManager : public jucePluginEditorLib::patchManager::PatchManager
 	{
 	public:
-		PatchManager(Editor& _editor, juce::Component* _root);
+		PatchManager(Editor& _editor, Rml::Element* _root);
 		~PatchManager() override;
 
 		// PatchManager overrides
@@ -22,7 +22,7 @@ namespace xtJucePlugin
 		pluginLib::patchDB::Data applyModifications(const pluginLib::patchDB::PatchPtr& _patch, const pluginLib::FileType& _fileType, pluginLib::ExportType _exportType) const override;
 		uint32_t getCurrentPart() const override;
 		bool activatePatch(const pluginLib::patchDB::PatchPtr& _patch, uint32_t _part) override;
-		bool parseFileData(pluginLib::patchDB::DataList& _results, const pluginLib::patchDB::Data& _data) override;
+		bool parseFileData(pluginLib::patchDB::DataList& _results, const pluginLib::patchDB::Data& _data, const std::string& _filename) override;
 
 	private:
 		pluginLib::patchDB::Data createCombinedDump(const pluginLib::patchDB::Data& _data) const;

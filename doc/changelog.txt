@@ -1,4 +1,423 @@
-Release Notes 
+Release Notes
+
+2.1.2:
+
+Framework:
+
+- [Imp] BUG-10120 allow to drag sliders slower by using shift key
+- [Imp] BUG-10130 Add IParameterFinder support for VST3 plug-ins
+        to support "AI knob" control surfaces
+
+- [Fix] Crash when loading plugin on some Linux distributions
+
+Osirus:
+
+- [Fix] BUG-10106 Hoverland/Galaxpel skins: Rename LFO SHAPE to reverb TYPE
+- [Fix] BUG-10106 Galaxpel skin: Reverb Type was not selectable
+- [Fix] BUG-10106 Galaxpel skin: Fix swapped 
+        parameters LFO 3 Keytrack and LFO 3 Fade In
+- [Fix] BUG-10106 Hoverland skin: Fix Envelope Polarity button inverted
+- [Fix] BUG-10106 If Cutoff Link is active, Cutoff 2 values are displayed 
+        as offset to Cutoff 1 in range -64 to +63
+
+2.1.1:
+
+Framework:
+
+- [Fix] BUG-10089 Crash when unloading plugin while automating a parameter
+- [Fix] Warning dialog and broken UI in certain hosts if host alters     
+        the locale to something that uses , as decimal point instead of .
+
+JE8086:
+
+- [Imp] Patch Manager: Add support for .pat/.pfm preset files
+
+- [Fix] BUG-10098 Automation parameters not updating when selecting a 
+        different patch/performance
+- [Fix] Support Patch/Performance Dumps from edit buffers
+- [Fix] Patch Manager list might erratically jump when selecting a Performance
+- [Fix] Test Console: Fix name of binary and add missing macOS setup script
+
+Osirus/OsTIrus:
+
+- [Imp] BUG-10100 Patch Manager: Add support for .tfx presets from TDM plugin
+
+Osirus:
+
+- [Fix] BUG-10075 swap labels Slot 1 and Slot 3 [Hoverland/Galaxpel skins]
+- [Fix] BUG-10106 Galaxpel skin: LFO link buttons had no effect
+- [Fix] BUG-10106 Galaxpel skin: Add Pure Tuning parameter to global page
+- [Fix] BUG-10106 Galaxpel skin: Fix inverted LFO Env Mode and Poly/Mono buttons
+
+OsTIrus:
+
+- [Fix] BUG-10083 Mode and Type labels were reversed for Delay on FX 2 page
+
+Xenia:
+
+- [Fix] BUG-10057 BP Filter Offset din't display bipolar but unipolar values
+- [Fix] BUG-10108 Crash when dragging a wave in the wave editor
+
+2.1.0:
+
+Framework:
+
+- [Fix] BUG-10085 Do not expand factory ROM presets tree node by default
+- [Fix] BUG-10084 Linux: Plugin editor cannot be operated after releasing 
+        the mouse
+
+JE8086:
+
+- [Sad] Removed the volume knob animation that "emulated" the loose knob
+        from the hardware. Apparently most people never owned the hardware 
+		and thought it was a bug
+
+OsTIrus:
+
+- [Fix] Automation became incompatible with 2.0.15 due to Chorus Type parameter
+        fix. Parameter versioning has been introduced to prevent this in the 
+		future. Parameters are now compatible with 2.0.14 and below again.
+- [Fix] Fix Serial 6 routing displaying two times "4 Pole" instead of 
+		"4 Pole" and "2 Pole"
+- [Fix] Typo "DESTENATION" on LFO page
+- [Fix] Typo "CUTTOFF" on Filter page
+- [Fix] Analogue filter modes button not lit if analogue modes page selected
+
+NodalRed2x:
+
+- [Imp] Added "secret" Notch filter type
+
+2.0.15:
+
+Osirus/OsTIrus:
+
+- [Fix] State not correctly saved in Single Mode
+
+OsTIrus:
+
+- [Fix] Chorus Type displayed the same value regardless of selected part
+
+2.0.14:
+
+Framework:
+
+- [Imp] Implemented software renderer that is used if no compatible OpenGL 
+		version is available. Software rendering can be forced via config
+		file: Set forceSoftwareRenderer to 1 
+
+- [Fix] Further attempts to improve thread priority for DSP threads on macOS
+- [Fix] List view in patch manager might not always refresh correctly when
+        selecting a different bank
+
+Osirus/OsTIrus:
+
+- [Fix] Single not properly restored if save state was saved while 
+        Multi mode active
+
+JE8086:
+
+- [Imp] JE-8086 is now compatible with DSP Bridge
+- [Imp] Added JE test console, a command line tool to test performance by
+        rendering the factory demos to a .wav file
+
+2.0.13:
+
+Framework:
+
+- [Imp] Improved compatiblity with Win 7 and older OpenGL versions
+
+JE8086:
+
+- [Fix] At latency setting 0, processing is now done in the audio thread to 
+        prevent spikes when app is not in focus
+- [Fix] BUG-10060 Remote Control Channel resetting to 1 if set to Off
+- [Fix] BUG-10064 Patch/Performance toggle button state not reporting the
+        correct state after switching skin
+- [Fix] BUG-10060 Performances were saved incorrectly and caused issues when 
+		loading them again
+- [Fix] BUG-10058 Fix Osc 2 Fine/Wide center values and 
+        incorrect parameter value labels
+
+Osirus/OsTIrus:
+
+- [Fix] UI always opened in Single mode even if plugin state was
+        saved in Multi mode
+
+OsTIrus:
+
+- [Fix] Part Midi indicators were slow and only refreshed twice per second
+
+Xenia:
+
+- [Fix] BUG-10067 Wave tables not refreshing when opening Wave Editor 
+        for the first time
+- [Fix] BUG-10066 Wave/Frequency/Phase editor click+drag not working
+
+2.0.12:
+
+NodalRed2x/OsTIrus:
+
+- [Fix] Dropdown texts overlapping with down arrows
+
+2.0.11:
+
+Framework:
+
+- [Fix] BUG-10045 Vertical sliders won't reset to 0 but to -1 on double click
+- [Fix] BUG-10051 Do not send gesture begin/end to host if parameter is 
+        changed via midi CCs
+
+JE8086:
+
+- [Imp] UI polishing and improvements
+- [Fix] Add Remote Midi Channel selection to UI. The Remote Midi Channel is 
+        used for the arpeggiator and split key mode. 
+		The default value has now changed from 3 to 1 for new instances.
+- [Fix] Voice Assign numbers were reversed, now correctly display Upper-Lower
+- [Fix] Selecting a Performance in Patch Manager didn't update the selection
+        for both parts, causing Patch Manager to select obsolete patches when
+		switching between Upper / Lower
+- [Fix] BUG-10053 Upper/Lower button state ignored after loading Performance 
+        from browser
+- [Fix] BUG-10050 No visual feedback when controlling Osc 2 Fine via Midi CC
+
+Osirus:
+
+- [Fix] Incorrect default value for Osc 2 Detune
+- [Fix] Galaxpel/Hoverland skins: dropdown texts overlapping with down arrow
+
+OsTIrus:
+
+- [Fix] Dropdown texts overlapping with down arrow
+
+2.0.10:
+
+Framework:
+
+- [Fix] BUG-10043 First GUI event "eaten" on plugin init
+
+2.0.9:
+
+Framework:
+
+- [Fix] Thread priorities were not set correctly on Mac/Linux, solves 
+        BUG-10040 Track performance affected by application focus
+- [Fix] BUG-10039 Right clicking a menu entry opened a second menu
+- [Fix] Reworked UI frame timing to use less resources
+- [Fix] Patch Manager: Exported patches may not have consecutive 
+        bank/program numbers
+
+JE8086:
+
+- [Imp] Added Performmance/Patch LCD toggle button
+- [Imp] UI has been further polished
+
+- [Fix] BUG-10037 Osc Range -12/+12 placement on UI didn't match parameter value
+
+2.0.8:
+
+Framework:
+
+- [Imp] Patch Manager: Setting to hide duplicates by name & hash are now 
+        remembered when reopening the plugin
+
+- [Fix] Random tooltips shown when resizing the plugin window
+- [Fix] BUG-10035 Automation randomly stopped working in some hosts due to UI 
+        sending automation events back to host
+- [Fix] EMU-25 focused parameter keeps dragged element in focus
+
+JE8086:
+
+- [Imp] Default Master Volume and maximum Master Volume increased by 12 dB
+- [Imp] Expose Master Volume and Master Tune as automatable parameters
+- [Imp] Velocity/Control Assign has been redesigned, now uses new
+        graphics for knobs/sliders
+- [Imp] Patch Manager design improved to match the overall synth design
+- [Imp] Overall UI polishing and improvements
+
+- [Fix] Oscillator Shift dropdown was reversed, causing mouse wheel to work
+		in the wrong direction
+- [Fix] Automating a parameter while both parts were selected cuased the other
+		part to be modified too and caused some hosts to disable the automation
+		lane
+- [Fix] Some Midi CCs updated the UI but didn't modify the patch because CC mode
+        was set to Mode 1 instead of Mode 2
+
+2.0.7:
+
+JE8086:
+
+- [Fix] Incorrect parameter range for Velocity & Control Assign for Oscillator 2
+        Range and Fine/Wide
+- [Fix] Possibly lost midi events when automating many parameters at once
+
+2.0.6:
+
+Framework:
+
+- [Fix] [UI] Pressing a button should not set the "checked" pseudo-class, that is what
+		the "active" state is for. BUG-10026 Furthermore, checked state was kept when 
+		moving out of the button while holding the mouse button down.
+- [Fix] [UI] Missing repaint if parameter changed via Midi CC causing sliders to jump
+- [Fix] Possible crash when resizing the editor window
+
+JE8086:
+
+- [Fix] MIDI timing issues due to synchronization problems, more prominent when rendering
+- [Fix] Some controls only affected Upper Part even if Lower Part was selected:
+        Amp Pan / Amp LFO1 Depth / Bend Range Up & Down / Transpose
+- [Fix] Damaged MIDI files when exporting patches via drag & drop
+
+2.0.5:
+
+JE8086:
+
+- [Imp] UI polishing and improvements
+- [Imp] Support MIDI Control Changes for all parameters according
+        to specification of original hardware
+
+- [Fix] Performances were saved in a broken state
+- [Fix] Much better MIDI timing & correction of reported latency to host
+- [Fix] Save menu for Performances didn't show "Performance" but "Patch Upper"
+
+2.0.4:
+
+Framework:
+
+- [Imp] Add ability to cycle through drop down entries and radio button groups 
+        via mouse wheel
+
+- [Fix] Fix inverted mouse wheel on Mac if natural scrolling is enabled
+
+JE8086:
+
+- [Fix] Slow boot when opening the plugin for the first time
+- [Fix] Validate ROM content before attempting to boot the device to prevent crashes due to
+        other ROMs in the same folder that might not belong to the synth
+- [Fix] Default Master Volume is now higher and the highest possible value has been increased
+        too. Furhtermore, the displayed percentage values have been adjusted to show
+		lower values overall
+
+2.0.3:
+
+Framework:
+
+- [Imp] DSP Bridge: The last connected host is now stored as part of the plugin state
+        and is reconnected to automatically on next plugin load.
+		If a connection cannot be established, the plugin will display a warning message
+		and will automatically fall back to local processing.
+
+- [Fix] BUG-10016 Added OpenGL 2 renderer as fallback if OpenGL 3.3 is not supported to
+		fix crashes on older hardware / Raspberry Pi
+- [Fix] BUG-10013 Sliders can now be adjusted via mouse wheel.
+- [Fix] BUG-10014 Patch Manager: Child data sources were still visible even
+        if parent node closed.
+- [Fix] BUG-10017 Tooltips could exceed screen bounds in some cases
+- [Fix] Patch Manager: List entry was being force-selected when being dragged
+- [Fix] Patch Manager: Patch list didn't refresh after renaming a patch
+- [Fix] Patch Manager: Drag & Drop from patch list to patch slot of UI (depending on plugin) 
+        not working
+- [Fix] Wrong initial state of toggle buttons bound to a parameter
+- [Fix] Toggle buttons that are part of a radio group shouldn't disable when clicked again
+- [Fix] Vertical sliders being reversed when bound to a parameter
+- [Fix] Erratic behaviour of tooltips/focused parameters when multiple parameters 
+        are automated
+- [Fix] Focused parameter display & tooltips not working for sliders
+
+Xenia:
+
+- [Fix] BUG-10017 Tooltips were placed too far away from knobs
+
+NodalRed2x:
+
+- [Fix] Knobs might not refresh when VM map is switched on/offq
+
+2.0.2:
+
+Framework:
+
+- [Fix] Disable all DSP Bridge related network activity if DSP Bridge is
+        not explicitly enabled via config file.
+- [Fix] Context Menus didn't open via Ctrl+Click on macOS.
+- [Fix] Plugins consumed all keyboard events regardless of if they were
+ 		actually handled or not. This caused issues in various hosts. For example,
+		it prevented using the space bar to toggle playback while the plugin was
+		focused.
+- [Fix] Content flickering in some hosts when resizing the plugin window to odd 
+        aspect ratios
+
+NodalRed2x:
+
+- [Fix] Fix incorrect Arpeggiator timing on excessive MIDI activity
+
+Osirus/OsTIrus:
+
+- [Fix] Changed default Master Volume from 92 to 127. Master Volume only affects
+		The first stereo output and caused different levels when using multiple outputs.
+		The default value of 92 was initially chosen to match the TI hardware in USB mode
+		but as it affects output pair 1 only it caused more confusion than benefits.
+		In OsTIrus, the Master Volume can be adjusted if needed via the global page.
+		If you need the TI-matching volume of 92 it can easily be restored by double clicking 
+		the knob.
+		Note that saved projects are not affected, only new instances will use the new default.
+
+Vavra:
+
+- [Imp] Added patch names below part select buttons
+
+- [Fix] Oscillator Shape knobs were continous instead of stepped
+- [Fix] Initial state of multi mode button not restored when reopening UI
+
+Xenia:
+
+- [Fix] MIDI LED was not working
+
+2.0.1:
+
+Framework:
+
+- [Imp] Incresed size of RmlUi debugger
+
+- [Fix] Knobs didn't respect the selected part and always displayed/modified part 1
+- [Fix] Patch Manager: Data sources were not sorted
+- [Fix] Patch Manager: List/Grid cell sizes height increased to cover descenders of letters like 'g' or 'y'
+- [Fix] UI didn't repaint immediately when parameter is modified via automation or MIDI
+- [Fix] Skin conversion didn't work when skin was in the legacy location next to the plugin
+- [Fix] Multiple context menus could be opened at the same time
+
+Xenia:
+
+- [Fix] Wave Editor: Copy to selected Table menu now uses a grid to 
+        prevent that the menu is too long to fit on screen
+- [Fix] Octave knobs were not in steps but continuous
+- [Fix] Fix patch manager grid cell width not covering standard patch name size
+
+Vavra:
+
+- [Fix] Octave knobs were not in steps but continuous
+- [Fix] Fix patch manager grid cell width not covering standard patch name size
+
+NodalRed2x:
+
+- [Fix] Master Volume knob not working
+
+2.0.0:
+
+Framework:
+
+- [Imp] Juce GUI has been replaced with RmlUi, a HTML/CSS based UI framework.
+		This allows to create more complex and visually appealing UI skins.
+		More information can be found at
+		https://dsp56300.wordpress.com/2025/08/19/rmlui-new-gui-rendering-engine-skinning-system/
+
+Osirus/OsTIrus:
+
+- [Imp] Patch Manager: Added support to extract presets from 
+        SoundDiver .lib files
+
+Xenia/Vavra:
+
+- [Fix] Fix possible crash related to the LCD
 
 1.4.5
 
@@ -18,6 +437,7 @@ DSP Bridge:
 Xenia:
 
 - [Imp] Add support to load MW1 user waves & tables
+- [Imp] Add support for UPAW and Speech tables
 - [Imp] Add ability to export to .syx instead of .mid via drag & drop by 
         holding shift while dragging
 - [Imp] Add export of wave tables as .mid, .syx and .wav via context menu

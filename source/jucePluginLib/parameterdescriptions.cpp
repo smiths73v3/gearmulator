@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "dsp56kEmu/logging.h"
+#include "dsp56kBase/logging.h"
 
 #include "synthLib/midiTypes.h"
 
@@ -232,6 +232,13 @@ namespace pluginLib
 			d.toText = valueList;
 
 			d.page = static_cast<uint8_t>(readPropertyInt("page"));
+			d.version = readPropertyIntWithDefault("version", d.version);
+
+			if (d.version < 0)
+			{
+				errors << name << ": version must be non-negative but is " << d.version << '\n';
+				continue;
+			}
 
 			auto index = readPropertyInt("index");
 
