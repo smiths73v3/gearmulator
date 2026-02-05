@@ -68,28 +68,11 @@
     },
     {
       "name": "zynthian_x86_64",
-      "inherits": "default",
+      "inherits": "zynthian",
       "displayName": "Build specifically for the Zynthian platform x86_64",
-      "generator": "Ninja",
-      "installDir": "/usr/local",
       "cacheVariables": {
-        "gearmulator_BUILD_JUCEPLUGIN": "ON",
-        "gearmulator_BUILD_FX_PLUGIN": "OFF",
-
         "CMAKE_CXX_FLAGS": "-DZYNTHIAN",
-        "CMAKE_C_FLAGS": "-DZYNTHIAN",
-
-        "gearmulator_BUILD_JUCEPLUGIN_CLAP": "OFF",
-        "gearmulator_BUILD_JUCEPLUGIN_VST2": "OFF",
-        "gearmulator_BUILD_JUCEPLUGIN_VST3": "OFF",
-        "gearmulator_BUILD_JUCEPLUGIN_AU": "OFF",
-        "gearmulator_BUILD_JUCEPLUGIN_LV2": "ON",
-
-        "gearmulator_SYNTH_NODALRED2X": "OFF",
-        "gearmulator_SYNTH_OSIRUS": "ON",
-        "gearmulator_SYNTH_OSTIRUS": "ON",
-        "gearmulator_SYNTH_VAVRA": "ON",
-        "gearmulator_SYNTH_XENIA": "ON"
+        "CMAKE_C_FLAGS": "-DZYNTHIAN"
       }
     },
     {
