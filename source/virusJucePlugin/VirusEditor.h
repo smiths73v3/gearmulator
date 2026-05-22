@@ -57,6 +57,7 @@ namespace genericVirusUI
 		void setPart(size_t _part);
 
 		virus::Controller& getController() const;
+		virus::VirusProcessor& getProcessor() const { return m_processor; }
 
 		std::pair<std::string, std::string> getDemoRestrictionText() const override;
 
@@ -66,6 +67,8 @@ namespace genericVirusUI
 		void initPluginDataModel(jucePluginEditorLib::PluginDataModel& _model) override;
 
 		jucePluginEditorLib::patchManager::PatchManager* createPatchManager(Rml::Element* _parent) override;
+
+		std::unique_ptr<jucePluginEditorLib::SettingsDeviceSpecific> createDeviceSpecificSettings(const std::string& _templateName, Rml::Element* _root) override;
 
 	private:
 		void onProgramChange(int _part);

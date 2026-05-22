@@ -24,13 +24,6 @@ namespace juceRmlUi
 {
 	namespace rendererJuce
 	{
-		struct Triangle
-		{
-			Rml::Vector2f p0;
-			Rml::Vector2f p1;
-			Rml::Vector2f p2;
-		};
-
 		struct Quad
 		{
 			Rml::Rectanglef position;
@@ -40,11 +33,20 @@ namespace juceRmlUi
 			bool hasColor;
 		};
 
+		struct Triangle
+		{
+			Rml::Vector2f p[3];
+			Rml::Vector2f uv[3];
+			Rml::ColourbPremultiplied color[3];
+			bool hasColor;
+		};
+
 		struct Geometry
 		{
 			Rml::Rectanglef bounds;
 			Rml::Rectanglef uvBounds;
 			std::vector<Quad> quads;
+			std::vector<Triangle> triangles;
 		};
 
 		template<typename T>
@@ -545,10 +547,10 @@ namespace juceRmlUi
 			Image& _dst, const Image& _src,
 			const int _srcX, const int _srcY, const int _srcW, const int _srcH,
 			const int _dstX, const int _dstY, const int _dstW, const int _dstH, 
-			const Colorb& _color, bool hasScale, bool hasAlphablend, bool hasColor) noexcept
+			const Colorb& _color, const bool _hasScale, bool _hasAlphablend, bool _hasColor) noexcept
 		{
-			if (hasScale) blit<true >(_dst, _src, _srcX, _srcY, _srcW, _srcH, _dstX, _dstY, _dstW, _dstH, _color, hasAlphablend, hasColor);
-			else          blit<false>(_dst, _src, _srcX, _srcY, _srcW, _srcH, _dstX, _dstY, _dstW, _dstH, _color, hasAlphablend, hasColor);
+			if (_hasScale) blit<true>(_dst, _src, _srcX, _srcY, _srcW, _srcH, _dstX, _dstY, _dstW, _dstH, _color, _hasAlphablend, _hasColor);
+			else          blit<false>(_dst, _src, _srcX, _srcY, _srcW, _srcH, _dstX, _dstY, _dstW, _dstH, _color, _hasAlphablend, _hasColor);
 		}
 
 		template<bool AlphaBlend>
@@ -609,6 +611,117 @@ namespace juceRmlUi
 				}
 			}
 		}
+
+		template<bool AlphaBlend>
+		void fillScanline(Image& _dst, const int _yi, float _x0, float _x1, const Colorb& _color, const int _invAlpha, const Rml::Rectanglei& _clip) noexcept
+		{
+			if (_x0 > _x1)
+				std::swap(_x0, _x1);
+
+			const auto xi0 = static_cast<int>(_x0);
+			const auto xi1 = static_cast<int>(_x1);
+
+			// Clamp to clip region
+			const auto xStart = std::max(xi0, _clip.Left());
+			const auto xEnd = std::min(xi1, _clip.Right());
+
+			auto* dst = _dst.getColorPointer(xStart, _yi);
+
+			for (int x = xStart; x < xEnd; ++x)
+			{
+				if constexpr (AlphaBlend)
+				{
+					auto existing = toInt(*dst);
+					auto blended = toInt(_color) + ((existing * _invAlpha) >> 8);
+					*dst = toByte(blended);
+				}
+				else
+				{
+					*dst = _color;
+				}
+				
+				++dst;
+			}
+		}
+
+		template<bool AlphaBlend>
+		void fillTriangle(Image& _dst, Rml::Vector2i _p0, Rml::Vector2i _p1, Rml::Vector2i _p2, const Colorb& _color, const Rml::Rectanglei& _clip) noexcept
+		{
+			// Sort vertices by Y coordinate (top to bottom), then by X (left to right)
+			if (_p0.y > _p1.y) std::swap(_p0, _p1);
+			if (_p0.y > _p2.y) std::swap(_p0, _p2);
+			if (_p1.y > _p2.y) std::swap(_p1, _p2);
+
+			if (_p0.y < 0 || _p2.y >= _dst.height || !_clip.Valid())
+				return;
+
+			// Early exit if triangle bounding box is completely outside clip region
+			const auto triMinX = std::min({ _p0.x, _p1.x, _p2.x });
+			const auto triMaxX = std::max({ _p0.x, _p1.x, _p2.x });
+
+			if (_p2.y < _clip.Top() || _p0.y >= _clip.Bottom() ||
+				triMaxX < _clip.Left() || triMinX >= _clip.Right())
+				return;
+
+			// Rasterize triangle using scanline approach
+			const auto totalHeight = _p2.y - _p0.y;
+
+			// Handle degenerate triangles (all points on a line)
+			if (totalHeight < 2)
+			{
+				const auto x = std::max(triMinX, _clip.Left());
+				const auto y = std::max(static_cast<int>(_p0.y), _clip.Top());
+				const auto w = std::min(triMaxX, _clip.Right()) - x;
+				const auto h = std::min(static_cast<int>(_p2.y), _clip.Bottom() - 1) - y;
+
+				if (w > 0 && h >= 0)
+					fill<AlphaBlend>(_dst, x, y, w, h, _color);
+				return;
+			}
+
+			const auto invAlpha = 255 - _color.a;
+
+			// Clamp Y coordinates to clip region before loops to avoid per-scanline checks
+			const auto yStart = std::max(_clip.Top(), static_cast<int>(_p0.y));
+			const auto yMid = std::clamp(static_cast<int>(_p1.y), _clip.Top(), _clip.Bottom() - 1);
+			const auto yEnd = std::min(static_cast<int>(_p2.y), _clip.Bottom() - 1);
+
+			// Early exit if triangle is completely outside clip region
+			if (yStart >= _clip.Bottom() || yEnd < _clip.Top())
+				return;
+
+			// Render upper part (from p0 to p1)
+			for (int yi = yStart; yi <= yMid && yi <= yEnd; ++yi)
+			{
+				const auto y = static_cast<float>(yi);
+				const auto segmentHeight = _p1.y - _p0.y;
+				
+				// Clamp interpolation factors to [0, 1] to prevent overshooting on small triangles
+				const auto alpha = std::clamp((y - _p0.y) / totalHeight, 0.0f, 1.0f);
+				const auto beta = segmentHeight > 0.0f ? std::clamp((y - _p0.y) / segmentHeight, 0.0f, 1.0f) : 0.0f;
+
+				const auto x0 = _p0.x + (_p2.x - _p0.x) * alpha;
+				const auto x1 = _p0.x + (_p1.x - _p0.x) * beta;
+
+				fillScanline<AlphaBlend>(_dst, yi, x0, x1, _color, invAlpha, _clip);
+			}
+
+			// Render lower part (from p1 to p2)
+			for (int yi = yMid + 1; yi <= yEnd; ++yi)
+			{
+				const auto y = static_cast<float>(yi);
+				const auto segmentHeight = _p2.y - _p1.y;
+				
+				// Clamp interpolation factors to [0, 1] to prevent overshooting on small triangles
+				const auto alpha = std::clamp((y - _p0.y) / totalHeight, 0.0f, 1.0f);
+				const auto beta = segmentHeight > 0.0f ? std::clamp((y - _p1.y) / segmentHeight, 0.0f, 1.0f) : 0.0f;
+
+				const auto x0 = _p0.x + (_p2.x - _p0.x) * alpha;
+				const auto x1 = _p1.x + (_p2.x - _p1.x) * beta;
+
+				fillScanline<AlphaBlend>(_dst, yi, x0, x1, _color, invAlpha, _clip);
+			}
+		}
 	}
 
 	namespace
@@ -627,7 +740,10 @@ namespace juceRmlUi
 	}
 
 	RendererJuce::~RendererJuce()
-	= default;
+	{
+		m_renderImage.reset();
+		m_renderTargetPool.clear();
+	}
 
 	Image* Image::getMip()
 	{
@@ -684,117 +800,151 @@ namespace juceRmlUi
 			alphaSum += c.alpha;
 		}
 
-//		g->color = juce::Colour(0xff808080);
 		g->bounds = Rml::Rectanglef::FromCorners(Rml::Vector2f(posMin.x, posMin.y), Rml::Vector2f(posMax.x, posMax.y));
 		g->uvBounds = Rml::Rectanglef::FromCorners(Rml::Vector2f(uvMin.x, uvMin.y), Rml::Vector2f(uvMax.x, uvMax.y));
 
-		// try to extract quads
-		size_t i = 0;
-		for (; i <= _indices.size() - 6; i += 6)
+		// Try to extract quads from triangle pairs
+		std::vector<bool> indexUsed(_indices.size(), false);
+
+		for (size_t i = 0; i + 6 <= _indices.size(); i += 3)
 		{
-			int quadIndices[4] =
+			if (indexUsed[i])
+				continue;
+
+			const int t1i0 = _indices[i + 0];
+			const int t1i1 = _indices[i + 1];
+			const int t1i2 = _indices[i + 2];
+
+			for (size_t j = i + 3; j + 3 <= _indices.size() && j < i + 12; j += 3)
 			{
-				_indices[i],
-				_indices[i],
-				_indices[i],
-				_indices[i],
-			};
-
-			int indicesUsed = 1;
-
-			for (size_t j=0; j<6; ++j)
-			{
-				bool found = false;
-				for (int k=0; k<indicesUsed; ++k)
-				{
-					if (_indices[i + j] == quadIndices[k])
-					{
-						found = true;
-						break;
-					}
-				}
-				if (!found)
-				{
-					if (indicesUsed < 4)
-					{
-						quadIndices[indicesUsed] = _indices[i + j];
-						++indicesUsed;
-					}
-					else
-					{
-						indicesUsed = 5; // too many unique indices
-						break;
-					}
-				}
-			}
-
-			if (indicesUsed == 4)
-			{
-				const auto& v0 = _vertices[quadIndices[0]];
-				const auto& v1 = _vertices[quadIndices[1]];
-				const auto& v2 = _vertices[quadIndices[2]];
-				const auto& v3 = _vertices[quadIndices[3]];
-
-				const Rml::Vector2f quadPosMin(
-					std::min({ v0.position.x, v1.position.x, v2.position.x, v3.position.x }),
-					std::min({ v0.position.y, v1.position.y, v2.position.y, v3.position.y })
-				);
-
-				const Rml::Vector2f quadPosMax(
-					std::max({ v0.position.x, v1.position.x, v2.position.x, v3.position.x }),
-					std::max({ v0.position.y, v1.position.y, v2.position.y, v3.position.y })
-				);
-
-				if (quadPosMax.x <= quadPosMin.y || quadPosMax.y <= quadPosMin.y)
+				if (indexUsed[j])
 					continue;
 
-				const Rml::Vector2f quadUvMin(
-					std::min({ v0.tex_coord.x, v1.tex_coord.x, v2.tex_coord.x, v3.tex_coord.x }),
-					std::min({ v0.tex_coord.y, v1.tex_coord.y, v2.tex_coord.y, v3.tex_coord.y })
-				);
+				const int t2i0 = _indices[j + 0];
+				const int t2i1 = _indices[j + 1];
+				const int t2i2 = _indices[j + 2];
 
-				const Rml::Vector2f quadUvMax(
-					std::max({ v0.tex_coord.x, v1.tex_coord.x, v2.tex_coord.x, v3.tex_coord.x }),
-					std::max({ v0.tex_coord.y, v1.tex_coord.y, v2.tex_coord.y, v3.tex_coord.y })
-				);
+				std::array<int, 6> allIndices = {t1i0, t1i1, t1i2, t2i0, t2i1, t2i2};
+				int quadIndices[6];
+				int uniqueCount = 0;
 
-				uint32_t rSum = v0.colour.red + v1.colour.red + v2.colour.red + v3.colour.red;
-				uint32_t gSum = v0.colour.green + v1.colour.green + v2.colour.green + v3.colour.green;
-				uint32_t bSum = v0.colour.blue + v1.colour.blue + v2.colour.blue + v3.colour.blue;
-				uint32_t aSum = v0.colour.alpha + v1.colour.alpha + v2.colour.alpha + v3.colour.alpha;
+				for (int idx : allIndices)
+				{
+					bool found = false;
+					for (int k = 0; k < uniqueCount; ++k)
+					{
+						if (quadIndices[k] == idx)
+						{
+							found = true;
+							break;
+						}
+					}
+					if (!found)
+						quadIndices[uniqueCount++] = idx;
+				}
 
-				auto quadColor = Rml::ColourbPremultiplied(
-					static_cast<uint8_t>(rSum >> 2),
-					static_cast<uint8_t>(gSum >> 2),
-					static_cast<uint8_t>(bSum >> 2),
-					static_cast<uint8_t>(aSum >> 2)
-				);
+				if (uniqueCount == 4)
+				{
+					const auto& v0 = _vertices[quadIndices[0]];
+					const auto& v1 = _vertices[quadIndices[1]];
+					const auto& v2 = _vertices[quadIndices[2]];
+					const auto& v3 = _vertices[quadIndices[3]];
 
-				const auto hasColor = quadColor.red != 255 || quadColor.green != 255 || quadColor.blue != 255;
+					// Validate that the 4 vertices form an axis-aligned quad
+					// There should be exactly 2 unique X values and 2 unique Y values
+					std::array<float, 4> xVals = {v0.position.x, v1.position.x, v2.position.x, v3.position.x};
+					std::array<float, 4> yVals = {v0.position.y, v1.position.y, v2.position.y, v3.position.y};
+					
+					std::sort(xVals.begin(), xVals.end());
+					std::sort(yVals.begin(), yVals.end());
+					
+					constexpr float epsilon = 1.0f;
+					const bool validQuadX = (std::abs(xVals[0] - xVals[1]) < epsilon) && (std::abs(xVals[2] - xVals[3]) < epsilon);
+					const bool validQuadY = (std::abs(yVals[0] - yVals[1]) < epsilon) && (std::abs(yVals[2] - yVals[3]) < epsilon);
+					
+					if (!validQuadX || !validQuadY)
+						continue;
 
-				g->quads.emplace_back(Quad{
-					Rml::Rectanglef::FromCorners(quadPosMin, quadPosMax),
-					Rml::Rectanglef::FromCorners(quadUvMin, quadUvMax),
-					Rml::Vector2f(
-						(quadUvMax.x - quadUvMin.x) / (quadPosMax.x - quadPosMin.x),
-						(quadUvMax.y - quadUvMin.y) / (quadPosMax.y - quadPosMin.y)
-					),
-					quadColor,
-					hasColor });
-			}
-			else
-			{
-				break;
+					const Rml::Vector2f quadPosMin(xVals[0], yVals[0]);
+					const Rml::Vector2f quadPosMax(xVals[3], yVals[3]);
+
+					if (quadPosMax.x <= quadPosMin.x || quadPosMax.y <= quadPosMin.y)
+						continue;
+
+					const Rml::Vector2f quadUvMin(
+						std::min({ v0.tex_coord.x, v1.tex_coord.x, v2.tex_coord.x, v3.tex_coord.x }),
+						std::min({ v0.tex_coord.y, v1.tex_coord.y, v2.tex_coord.y, v3.tex_coord.y })
+					);
+
+					const Rml::Vector2f quadUvMax(
+						std::max({ v0.tex_coord.x, v1.tex_coord.x, v2.tex_coord.x, v3.tex_coord.x }),
+						std::max({ v0.tex_coord.y, v1.tex_coord.y, v2.tex_coord.y, v3.tex_coord.y })
+					);
+
+					uint32_t rSum = v0.colour.red + v1.colour.red + v2.colour.red + v3.colour.red;
+					uint32_t gSum = v0.colour.green + v1.colour.green + v2.colour.green + v3.colour.green;
+					uint32_t bSum = v0.colour.blue + v1.colour.blue + v2.colour.blue + v3.colour.blue;
+					uint32_t aSum = v0.colour.alpha + v1.colour.alpha + v2.colour.alpha + v3.colour.alpha;
+
+					/*
+					// If the colors are not the same, we skip the quad and render the triangles separately
+					if (v0.colour != v1.colour || v0.colour != v2.colour || v0.colour != v3.colour)
+						break;
+					*/
+
+					auto quadColor = Rml::ColourbPremultiplied(
+						static_cast<uint8_t>(rSum >> 2),
+						static_cast<uint8_t>(gSum >> 2),
+						static_cast<uint8_t>(bSum >> 2),
+						static_cast<uint8_t>(aSum >> 2)
+					);
+
+					const auto hasColor = quadColor.red != 255 || quadColor.green != 255 || quadColor.blue != 255;
+
+					g->quads.emplace_back(Quad{
+						Rml::Rectanglef::FromCorners(quadPosMin, quadPosMax),
+						Rml::Rectanglef::FromCorners(quadUvMin, quadUvMax),
+						Rml::Vector2f(
+							(quadUvMax.x - quadUvMin.x) / (quadPosMax.x - quadPosMin.x),
+							(quadUvMax.y - quadUvMin.y) / (quadPosMax.y - quadPosMin.y)
+						),
+						quadColor,
+						hasColor });
+
+					indexUsed[i] = indexUsed[i+1] = indexUsed[i+2] = true;
+					indexUsed[j] = indexUsed[j+1] = indexUsed[j+2] = true;
+					break;
+				}
 			}
 		}
 
-		// add remaining triangles to path
-		for (; i <= _indices.size() - 3; i += 3)
+		// Process remaining triangles
+		for (size_t i = 0; i + 3 <= _indices.size(); i += 3)
 		{
-			const auto& v0 = _vertices[_indices[i]];
-			const auto& v1 = _vertices[_indices[i+1]];
-			const auto& v2 = _vertices[_indices[i+2]];
-			assert(false);
+			if (indexUsed[i])
+				continue;
+
+			const auto t1i0 = _indices[i + 0];
+			const auto t1i1 = _indices[i + 1];
+			const auto t1i2 = _indices[i + 2];
+
+			const auto& v0 = _vertices[t1i0];
+			const auto& v1 = _vertices[t1i1];
+			const auto& v2 = _vertices[t1i2];
+
+			const auto hasColor = v0.colour != v1.colour || v0.colour != v2.colour;
+
+			g->triangles.emplace_back(Triangle{
+					{Rml::Vector2f(v0.position.x, v0.position.y),
+						Rml::Vector2f(v1.position.x, v1.position.y),
+						Rml::Vector2f(v2.position.x, v2.position.y)},
+					{Rml::Vector2f(v0.tex_coord.x, v0.tex_coord.y),
+						Rml::Vector2f(v1.tex_coord.x, v1.tex_coord.y),
+						Rml::Vector2f(v2.tex_coord.x, v2.tex_coord.y)},
+					{v0.colour,
+						v1.colour,
+						v2.colour}, hasColor }
+			);
 		}
 
 		return reinterpret_cast<Rml::CompiledGeometryHandle>(g);
@@ -913,6 +1063,28 @@ namespace juceRmlUi
 					fill<false>(*m_renderTarget, dstX, dstY, dstW, dstH, col);
 			}
 		}
+
+		// Render triangles (only solid color for now, no texture support)
+		for (const auto& tri : p->triangles)
+		{
+			if (img)
+				continue; // Skip textured triangles for now
+
+			// Apply translation to triangle vertices
+			const auto p0 = Rml::Vector2i(roundToInt(tri.p[0].x + _translation.x), roundToInt(tri.p[0].y + _translation.y));
+			const auto p1 = Rml::Vector2i(roundToInt(tri.p[1].x + _translation.x), roundToInt(tri.p[1].y + _translation.y));
+			const auto p2 = Rml::Vector2i(roundToInt(tri.p[2].x + _translation.x), roundToInt(tri.p[2].y + _translation.y));
+
+			// Use first vertex color
+			const auto& color = tri.color[0];
+			const Colorb col { color.red, color.green, color.blue, color.alpha };
+
+			// Render the triangle
+			if (col.a < 255)
+				fillTriangle<true>(*m_renderTarget, p0, p1, p2, col, clip);
+			else
+				fillTriangle<false>(*m_renderTarget, p0, p1, p2, col, clip);
+		}
 	}
 
 	Rml::TextureHandle RendererJuce::LoadTexture(Rml::Vector2i& _textureDimensions, const Rml::String& _source)
@@ -1018,9 +1190,180 @@ namespace juceRmlUi
 
 	void RendererJuce::ReleaseTexture(const Rml::TextureHandle _texture)
 	{
+		if (!_texture)
+			return;
+
 		auto* img = reinterpret_cast<Image*>(_texture);
 		img->clearMip();
 		m_imagePool[img->getSizeKey()].emplace_back(img);
+	}
+
+	Rml::LayerHandle RendererJuce::PushLayer()
+	{
+		if (!m_renderTarget)
+			return {};
+
+		const auto width = m_renderTarget->width;
+		const auto height = m_renderTarget->height;
+
+		auto* newLayer = allocateRenderTarget(width, height);
+
+		// Copy current render target to new layer, then clear the scissor region to transparent black
+		if (m_scissorEnabled)
+		{
+			memcpy(newLayer->data.data(), m_renderTarget->data.data(), m_renderTarget->data.size());
+			const auto w = m_scissorRegion.Width();
+			const auto h = m_scissorRegion.Height();
+			fill<false>(*newLayer, m_scissorRegion.Left(), m_scissorRegion.Top(), w, h, Colorb{ 0,0,0,0 });
+		}
+		else
+		{
+			// New layer should be transparent black
+			memset(newLayer->data.data(), 0, newLayer->data.size());
+		}
+
+		m_renderTargetStack.push_back(newLayer);
+		m_renderTarget = newLayer;
+
+		return reinterpret_cast<Rml::LayerHandle>(newLayer);
+	}
+
+	void RendererJuce::PopLayer()
+	{
+		// Never pop the base render target (first item in stack)
+		RMLUI_ASSERT(m_renderTargetStack.size() > 1 && "Cannot pop the base render target layer");
+
+		if (m_renderTargetStack.size() <= 1)
+			return;
+
+		auto* layer = m_renderTargetStack.back();
+		m_renderTargetStack.pop_back();
+
+		releaseRenderTarget(layer);
+
+		// Update m_renderTarget to point to the new top of stack
+		m_renderTarget = m_renderTargetStack.back();
+	}
+
+	Rml::TextureHandle RendererJuce::SaveLayerAsTexture()
+	{
+		if (!m_renderTarget)
+			return {};
+
+		int texWidth, texHeight, srcX, srcY;
+
+		if (m_scissorEnabled)
+		{
+			RMLUI_ASSERT(m_scissorRegion.Valid());
+			// Texture size is based on the scissor region
+			texWidth = m_scissorRegion.Width();
+			texHeight = m_scissorRegion.Height();
+			srcX = m_scissorRegion.Left();
+			srcY = m_scissorRegion.Top();
+		}
+		else
+		{
+			// Use full render target size
+			texWidth = m_renderTarget->width;
+			texHeight = m_renderTarget->height;
+			srcX = 0;
+			srcY = 0;
+		}
+
+		// Create a new image to hold the texture copy
+		auto* texture = new Image();
+		texture->width = texWidth;
+		texture->paddedWidth = Image::padWidth(texWidth);
+		texture->height = texHeight;
+		texture->hasAlpha = true;
+
+		// Allocate texture data
+		const auto dataSize = texture->paddedWidth * Image::padHeight(texture->height) * 4;
+		texture->data.resize(dataSize);
+
+		// Copy region from render target to texture at position (0,0)
+		constexpr Colorb color{255, 255, 255, 255};
+		blit<false, false>(*texture, 0, 0, *m_renderTarget, 
+			srcX, srcY, texWidth, texHeight, color);
+
+		// The layer remains on the stack and rendering continues to it
+		return reinterpret_cast<Rml::TextureHandle>(texture);
+	}
+
+	void RendererJuce::CompositeLayers(const Rml::LayerHandle _source, const Rml::LayerHandle _destination, const Rml::BlendMode _blendMode, const Rml::Span<const Rml::CompiledFilterHandle> _filters)
+	{
+		const auto* source = reinterpret_cast<const Image*>(_source);
+		auto* destination = reinterpret_cast<Image*>(_destination);
+
+		if (!_source)
+			source = m_renderTarget;
+
+		if (!_destination)
+			destination = m_renderTarget;
+
+		RMLUI_ASSERT(source && destination);
+		RMLUI_ASSERT(source->width == destination->width && "Source and destination width must match");
+		RMLUI_ASSERT(source->height == destination->height && "Source and destination height must match");
+		RMLUI_ASSERT(source->paddedWidth == destination->paddedWidth && "Source and destination padded width must match");
+
+		constexpr Colorb color{255, 255, 255, 255}; // No color tint
+
+		auto x = 0;
+		auto y = 0;
+		auto w = source->width;
+		auto h = source->height;
+
+		if (m_scissorEnabled)
+		{
+			x = m_scissorRegion.Left();
+			y = m_scissorRegion.Top();
+			w = m_scissorRegion.Width();
+			h = m_scissorRegion.Height();
+		}
+
+		if (_blendMode == Rml::BlendMode::Replace)
+		{
+			// Direct copy without alpha blending
+			blit<false, false>(*destination, x, y, *source, x,y,w,h, color);
+		}
+		else
+		{
+			// Alpha blend (assumes BlendMode::AlphaBlend or similar)
+			blit<true, false>(*destination, x, y, *source, x,y,w,h, color);
+		}
+	}
+
+	Image* RendererJuce::allocateRenderTarget(const int _width, const int _height)
+	{
+		// try to reuse from pool
+		for (auto it = m_renderTargetPool.begin(); it != m_renderTargetPool.end(); ++it)
+		{
+			if ((*it)->width == _width && (*it)->height == _height)
+			{
+				auto* img = it->release();
+				m_renderTargetPool.erase(it);
+				return img;
+			}
+		}
+
+		// allocate new render target
+		auto* img = new Image();
+		img->width = _width;
+		img->paddedWidth = Image::padWidth(_width);
+		img->height = _height;
+		img->hasAlpha = true;
+		img->data.resize(img->paddedWidth * Image::padHeight(_height) * 4);
+
+		return img;
+	}
+
+	void RendererJuce::releaseRenderTarget(Image* _img)
+	{
+		if (!_img)
+			return;
+
+		_img->clearMip();
+		m_renderTargetPool.emplace_back(_img);
 	}
 
 	void RendererJuce::EnableScissorRegion(bool _enable)
@@ -1031,6 +1374,19 @@ namespace juceRmlUi
 	void RendererJuce::SetScissorRegion(Rml::Rectanglei _region)
 	{
 		m_scissorRegion = _region;
+
+		// Clamp scissor region to the render target bounds
+		if (m_renderTarget)
+		{
+			const Rml::Rectanglei rtBounds = Rml::Rectanglei::FromPositionSize(Rml::Vector2i(0, 0), Rml::Vector2i(m_renderTarget->width, m_renderTarget->height));
+			m_scissorRegion = m_scissorRegion.Intersect(rtBounds);
+		}
+	}
+
+	void RendererJuce::SetTransform(const Rml::Matrix4f* transform)
+	{
+		m_transform = transform ? *transform : Rml::Matrix4f::Identity();
+		RenderInterface::SetTransform(transform);
 	}
 
 	void RendererJuce::pushClip()
@@ -1049,31 +1405,52 @@ namespace juceRmlUi
 		));
 	}
 
-	void RendererJuce::beginFrame(juce::Graphics& _g)
+	void RendererJuce::beginFrame(juce::Graphics& _g, const Rml::Vector2i _size)
 	{
 		m_graphics = &_g;
 		m_graphics->setImageResamplingQuality(juce::Graphics::mediumResamplingQuality);
 
-		const auto width = _g.getClipBounds().getWidth();
-		const auto height = _g.getClipBounds().getHeight();
+		const auto width = _size.x;
+		const auto height = _size.y;
 
 		m_scissorRegion = Rml::Rectanglei::FromPositionSize(Rml::Vector2i(0,0), Rml::Vector2i(width, height));
 
+		// Release all additional layers (keep base layer at index 0)
+		while (m_renderTargetStack.size() > 1)
+		{
+			auto* layer = m_renderTargetStack.back();
+			m_renderTargetStack.pop_back();
+			releaseRenderTarget(layer);
+		}
+
+		// Check if we need to resize the base render target
 		if (!m_renderTarget || m_renderTarget->width != width || m_renderTarget->height != height)
 		{
-			// for generated images (LCDs) they are created at specific sizes based on the render target size, clear the pool then as the ones
-			// in the pool will most probably not used anyway
+			// Remove old base render target from stack if it exists
+			if (!m_renderTargetStack.empty())
+			{
+				m_renderTargetStack.pop_back();
+			}
+
+			// Release old base render target
 			if (m_renderTarget)
+			{
+				// for generated images (LCDs) they are created at specific sizes based on the render target size, 
+				// clear the pool as the ones in the pool will most probably not be used anyway
 				m_imagePool.clear();
+				releaseRenderTarget(m_renderTarget);
+			}
 
-			m_renderTarget.reset(new Image());
-			m_renderTarget->width = width;
-			m_renderTarget->paddedWidth = Image::padWidth(width);
-			m_renderTarget->height = height;
-			m_renderTarget->data.resize((Image::padWidth(width) * Image::padHeight(height)) << 2);
-
+			// Allocate new base render target
+			m_renderTarget = allocateRenderTarget(width, height);
 			m_renderImage.reset(new juce::Image(juce::Image::RGB, width, height, false));
+
+			// Push new base render target onto stack
+			m_renderTargetStack.push_back(m_renderTarget);
 		}
+
+		// At this point, stack should have exactly one item (the base render target)
+		assert(m_renderTargetStack.size() == 1 && m_renderTargetStack[0] == m_renderTarget);
 	}
 
 	namespace
@@ -1191,7 +1568,7 @@ namespace juceRmlUi
 			if (_dst.pixelStride == 4)
 			{
 				if (_dst.pixelFormat == juce::Image::ARGB)
-					copyToBitmap<juce::PixelARGB>(_dst, _src, 0, 0, w, h);
+					copyToBitmap4<juce::PixelARGB>(_dst, _src, 0, 0, w, h);
 				else if (_dst.pixelFormat == juce::Image::RGB)
 					copyToBitmap4<juce::PixelRGB>(_dst, _src, 0, 0, w, h);
 			}
@@ -1202,7 +1579,7 @@ namespace juceRmlUi
 		}
 	}
 
-	void RendererJuce::endFrame(const juce::Image& _renderTarget)
+	void RendererJuce::endFrame(const juce::Image& _renderTarget, const float _renderScale/* = 1.0f*/)
 	{
 		// copy render target to juce::Image
 		{
@@ -1214,7 +1591,12 @@ namespace juceRmlUi
 
 				auto& context = m_graphics->getInternalContext();
 
-				context.drawImage(*m_renderImage, juce::AffineTransform());
+				// The render image may be larger than the component's logical bounds (when
+				// rendered at a DPI scale > 1). Scale down by the render scale so the image
+				// maps to logical coordinates correctly.
+				const auto transform = _renderScale != 1.0f ? juce::AffineTransform::scale(1.0f / _renderScale) : juce::AffineTransform();
+
+				context.drawImage(*m_renderImage, transform);
 			}
 			else
 			{

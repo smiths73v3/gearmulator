@@ -2,8 +2,9 @@ pipeline {
 	agent { label "${params.AgentLabel}" }
 	
 	environment {
-		GIT_URL = credentials('dsp56300_gitUrl')
 		CMAKE_BUILD_DIR = 'temp/cmake_jenkins'
+		GH_TOKEN = credentials('tus_git_upload_token')
+		GIT_URL = credentials('dsp56300_gitUrl')
 	}
 	parameters
 	{
@@ -16,13 +17,14 @@ pipeline {
 		booleanParam(name: 'Deploy', defaultValue: true, description: '') 
 		booleanParam(name: 'IntegrationTests', defaultValue: true, description: '')
 		booleanParam(name: 'Upload', defaultValue: false, description: '') 
+		booleanParam(name: 'GitHub', defaultValue: false, description: '') 
 	}
 	stages {
 		stage("Checkout") {
 			steps {
 				script {
 					currentBuild.displayName += " - ${params.AgentLabel} - ${params.Branch} - ${params.DisplayName}"
-					currentBuild.description = "Integration Tests: ${params.IntegrationTests}\nDeploy: ${params.Deploy}\nUpload: ${params.Upload}"
+					currentBuild.description = "Integration Tests: ${params.IntegrationTests}\nDeploy: ${params.Deploy}\nUpload: ${params.Upload}\nGitHub: ${params.GitHub}"
 				}
 				doCheckout()
 			}
@@ -65,6 +67,16 @@ pipeline {
 			}
 			steps {
 				doUpload();
+			}
+		}
+		stage('GitHub') {
+			when {
+				expression {
+					return params.GitHub
+				}
+			}
+			steps {
+				doGitHub();
 			}
 		}
 	}
@@ -182,4 +194,13 @@ def doDeploy()
 def doUpload()
 {
 	copyArtefacts(0,1)
+}
+
+def doGitHub()
+{
+    def buildDir = cmakeBuildDir()
+
+	if("${params.UploadFolder}" == "beta" || "${params.UploadFolder}" == "") {
+		genericSh "cmake -Dgearmulator_SOURCE_DIR=${WORKSPACE} -Dgearmulator_BINARY_DIR=${WORKSPACE}/${buildDir} -P scripts/deployGitHub.cmake"
+	}
 }

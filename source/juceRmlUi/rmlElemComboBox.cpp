@@ -59,7 +59,10 @@ namespace juceRmlUi
 			m_options.push_back({_options[i], static_cast<int>(i)});
 		}
 
-		setMaxValue(static_cast<float>(m_options.size() - 1));
+		int max = 0;
+		for (const auto& option : m_options)
+			max = std::max(option.value, max);
+		setMaxValue(static_cast<float>(max));
 	}
 
 	void ElemComboBox::addOption(const Rml::String& _option)
@@ -116,25 +119,27 @@ namespace juceRmlUi
 
 	void ElemComboBox::onMouseScroll(const Rml::Event& _event)
 	{
-		auto offset = helper::isMouseWheelUp(_event) ? -1 : 1;
+		const auto offset = helper::isMouseWheelUp(_event) ? -1 : 1;
 
-		const auto current = getIndexFromValue(static_cast<int>(getValue()));
+		const auto current = getSelectedIndex();
 
 		if (current < 0)
 			return;
 
 		const auto next = current + offset;
 
-		const auto nextIndex = getIndexFromValue(next);
-		if (nextIndex < 0)
+		if (next < 0 || static_cast<size_t>(next) >= m_options.size())
 			return;
 
-		setSelectedIndex(nextIndex);
+		setSelectedIndex(static_cast<size_t>(next));
 	}
 
 	void ElemComboBox::setSelectedIndex(const size_t _index, const bool _sendChangeEvent/* = true*/)
 	{
-		setValue(static_cast<float>(_index), _sendChangeEvent);
+		if (_index >= m_options.size())
+			return;
+
+		setValue(static_cast<float>(m_options[_index].value), _sendChangeEvent);
 
 		if (!_sendChangeEvent)
 			updateValueText();
@@ -142,10 +147,7 @@ namespace juceRmlUi
 
 	int ElemComboBox::getSelectedIndex() const
 	{
-		const auto i = static_cast<int>(getValue());
-		if (i < 0|| static_cast<size_t>(i) >= m_options.size())
-			return -1;
-		return i;
+		return getIndexFromValue(static_cast<int>(getValue()));
 	}
 
 	void ElemComboBox::OnUpdate()

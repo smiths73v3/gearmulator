@@ -1,5 +1,196 @@
 Release Notes
 
+2.2.3:
+
+Framework:
+
+- [New] EMU-73 Native Metal renderer for macOS, replacing the
+        deprecated OpenGL path. Supports all rendering features
+        including backdrop blur, filters, drop shadows, gradients,
+        clip masking and MSAA.
+- [New] EMU-70 Lua scripting support for skins. Skin authors can use
+        Lua scripts in RML files to create dynamic UI behavior, read
+        and write synth parameters, and react to parameter changes.
+        See doc/lua_scripting.md for documentation.
+
+- [Fix] Fix file drag and drop onto part buttons (patch name, part
+        slots) not accepting dropped .syx/.mid files
+- [Fix] MIDI Learn: Feedback to host and physical MIDI ports was not
+        working
+- [Fix] Fix crash on plugin shutdown when a physical MIDI port was
+        active and a MIDI event arrived during shutdown (common problem
+		for controllers that send MIDI clock)
+- [Fix] BUG-10159 CLAP: Fix keyboard input in text fields (cursor
+        jumping, digit reordering) on Windows
+- [Fix] #262 Restore Windows 7 compatibility
+- [Fix] BUG-10144 Fix combo box value mapping for parameters with empty
+        entries (e.g. Phaser Stages in Osirus)
+- [Fix] BUG-10163 Software renderer: Fix GUI content shifting when
+        window is partially off-screen
+- [Fix] BUG-10168 Software renderer: Fix triangle rendering ignoring
+        scissor clip region (settings dialog overflow)
+- [Fix] EMU-42 Patch Manager: Fix file move failures with multiple
+        plugin instances in the same DAW
+- [Fix] BUG-10166 Fix slider following knob after double-click
+
+Osirus:
+
+- [Imp] Faster startup by extracting factory presets directly from ROM
+
+OsTIrus:
+
+- [Imp] Faster startup by extracting factory presets directly from ROM
+- [Imp] Trancy skin: Visual polishing (oscillator, filter, LFO, FX panels,
+        filter routing icons, waveform shape buttons)
+
+JE8086:
+
+- [Fix] BUG-10068 Trancy skin: Arp speed parameter now matches front panel
+        labels
+- [Fix] EMU-58 Trancy skin: Fix settings dialog font size
+- [Fix] BUG-10161 Fix saved performances split into separate entries
+        after DAW restart
+
+Vavra:
+
+- [New] EMU-48 Voice expansion: Emulates 3x DSP configuration for
+        75-voice polyphony. Enable in Settings > DSP/Audio. Setting is
+        preserved per instance, default is off
+
+Xenia:
+
+- [New] EMU-48 Voice expansion: Emulates 3x DSP configuration for
+        30-voice polyphony. Enable in Settings > DSP/Audio. Setting is
+        preserved per instance, default is off
+
+NodalRed2x:
+
+- [Fix] BUG-10113 Trancy skin: Added Program/Performance mode toggle. In
+        Program mode (default), loading a patch mutes other slots to prevent
+        hanging presets
+- [Fix] BUG-10156 Trancy skin: Fix settings dialog rendering issues caused
+        by missing font size
+
+2.2.2:
+
+Framework:
+
+- [Imp] BUG-10125 Browser grid view now supports mouse wheel scrolling for
+        horizontal navigation
+- [Imp] Added parameter linking for individual parameters
+
+- [Fix] EMU-18 Patch Manager: MIDI Banks category now appears for all synths
+        (was missing in Xenia, Vavra, and NodalRed2x)
+- [Fix] EMU-18 Patch Manager: MIDI bank assignments now persist across
+        plugin reloads (added serialization to binary cache)
+- [Fix] EMU-18 Patch Manager: MIDI Banks category is now collapsed by default
+- [Fix] BUG-10148 Patch Manager: Dragging a folder onto the data sources
+        tree now correctly adds it as a folder source instead of a file
+- [Fix] Patch Manager: Fix potential crash when scrolling group tree node
+        into view after element was destroyed
+- [Fix] Software Renderer: Fix UI scaling issue in Bitwig when monitor
+        DPI is set above 100%
+- [Fix] BUG-10102 Parameter Links: Prevent circular link dependencies that
+        caused erratic controller jumps. Bidirectional links are now rejected
+        with a user-facing warning dialog
+- [Fix] BUG-10111 Linux: Fix crash when loading multiple TUS plugin types
+        in the same DAW process, caused by ELF symbol interposition between
+        plugin shared objects
+- [Fix] BUG-10134 Fixed parameter rate limiting firing too fast due to
+        unreliable JUCE timer, causing sluggish wavetable bank cycling
+- [Fix] BUG-10117 Combo box mouse wheel scrolling now follows display order
+        for custom-ordered dropdowns (e.g. Page Matrix Assign Destination)
+- [Fix] Right-click context menu now opens correctly on scrollbar/slider
+        elements instead of falling through to the global menu
+- [Fix] BUG-10153 Patch Manager: Fix crash when typing in browser search
+        columns caused by invalid tree node cast during filtering
+
+JE8086:
+
+- [Imp] EMU-50 Create better default values when doubleclicking on a parameter
+- [Imp] BUG-10102 Added parameter locking/linking for JE8086
+
+- [Fix] BUG-10113 Loading a single patch in patch display mode now switches
+        key mode to Single to prevent the other layer from staying active
+
+Xenia:
+
+- [Imp] BUG-10134 Reduced wavetable bank cycling rate limit from 250ms to
+        100ms for smoother Wave knob interaction
+
+NodalRed2x:
+
+- [Fix] BUG-10010 Master Tune knob now correctly affects tuning (firmware
+        protects the value during multi dump processing, fix applies it
+        directly to MCU memory)
+- [Fix] BUG-10110 Arpeggiator/LFO timing no longer slows down under heavy
+        MIDI traffic (CC rate limiting prevents firmware event queue saturation)
+
+OsTIrus:
+
+- [Fix] BUG-10149 Master Volume knob now displays and updates correctly.
+        Global parameters were being dropped when received from the device
+
+2.2.1:
+
+Framework:
+
+- [Imp] EMU-6 MIDI Learn Mode: Replaced single-parameter dialog with a 
+        full visual overlay mode. Enter via right-click context menu, 
+        overlays appear on all parameters showing bound/unbound state.
+        Left-click to select a parameter for learning, right-click to 
+        clear a mapping. Press Escape to exit MIDI Learn mode.
+- [Fix] Removed old MIDI Learn dialog (replaced by overlay mode)
+- [Fix] Fix crash when closing plugin while MIDI Learn mode is active
+
+2.2.0:
+
+Framework:
+
+- [Imp] New Settings screen replacing context menu options, with pages for:
+        MIDI routing matrix with presets, DSP & Audio (latency, gain,
+        DSP clock, resampler mode), and Skin/GUI (skin selection, scale, 
+        software renderer toggle)
+- [Imp] EMU-6 MIDI Learn: Map any physical MIDI controller to synth 
+        parameters with auto-detection of absolute and relative modes.
+        Supports CC, Pitch Bend, Aftertouch, and Poly Pressure.
+        Includes preset management, conflict detection, and MIDI feedback.
+- [Imp] EMU-23 Part buttons: Right-click copy/paste via system clipboard,
+        enabling patch transfer between multi and single mode
+- [Imp] Add MAME high-quality and lo-fi resampler modes as alternatives 
+        to the legacy resampler, selectable per instance in DSP & Audio settings
+- [Imp] Optimize MAME resampler: use contiguous scratch buffers in FIR 
+        loops, eliminate per-callback heap allocation
+- [Imp] EMU-18 Patch Manager: Program change banks — assign MIDI bank 
+        numbers to data sources, enabling Bank Select + Program Change to 
+        select patches from the patch manager. Factory ROM banks get 
+        default assignments. Respects MIDI routing matrix settings.
+
+OsTIrus:
+
+- [Imp] Add sample rate selection to DSP & Audio settings
+
+2.1.4:
+
+Framework:
+
+- [Fix] EMU-42 Patch Manager: Fix threading bugs and file I/O race 
+        conditions with multiple plugin instances
+- [Fix] Patch Manager: Fix ghost nodes remaining in tree after
+        clearing a search filter
+- [Fix] Patch Manager: Fix non-matching folder nodes remaining
+        visible during tree search filtering
+		
+Vavra/Xenia:
+- [Fix] Fix state not being preserved when reloading
+        a DAW session
+
+2.1.3:
+
+JE8086:
+
+- [Fix] Preset no longer preserved when reloading a DAW session
+
 2.1.2:
 
 Framework:
@@ -8,7 +199,14 @@ Framework:
 - [Imp] BUG-10130 Add IParameterFinder support for VST3 plug-ins
         to support "AI knob" control surfaces
 
+- [Fix] BUG-10135 Patch Manager now works with WSL2 EXT4 mounted drives
+- [Fix] BUG-10136 Conditional parameter links now work with mouse wheel
+- [Fix] BUG-10133 Parameter values now correctly update when dragging controls quickly
 - [Fix] Crash when loading plugin on some Linux distributions
+
+Osirus/OsTIrus:
+
+- [Fix] BUG-10118 Double-clicking in preset name field no longer shows CSS properties
 
 Osirus:
 

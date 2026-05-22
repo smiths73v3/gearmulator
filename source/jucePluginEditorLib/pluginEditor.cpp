@@ -1,6 +1,15 @@
 #include "pluginEditor.h"
 
 #include "pluginProcessor.h"
+
+#include "settings.h"
+#include "settingsDspAudio.h"
+#include "settingsDspBridge.h"
+#include "settingsGui.h"
+#include "settingsMidi.h"
+#include "settingsMidiLearn.h"
+#include "settingsSkin.h"
+
 #include "skin.h"
 
 #include "baseLib/filesystem.h"
@@ -31,6 +40,7 @@
 #include "patchmanagerUiRml/patchmanagerDataModel.h"
 
 #include "RmlUi/Core/ElementDocument.h"
+#include "RmlUi/Core/Elements/ElementFormControlInput.h"
 
 namespace jucePluginEditorLib
 {
@@ -54,6 +64,11 @@ namespace jucePluginEditorLib
 
 	Editor::~Editor()
 	{
+		if (auto* translator = m_processor.getMidiLearnTranslator())
+			translator->onPresetChanged = nullptr;
+
+		setMidiLearnMode(false);
+
 		m_overlays.reset();
 
 		for (const auto& file : m_dragAndDropFiles)
@@ -108,7 +123,8 @@ namespace jucePluginEditorLib
 			if (juceRmlUi::helper::isContextMenu(_event))
 			{
 				_event.StopPropagation();
-				openMenu(_event);
+				if (!settingsOpened())
+					openMenu(_event);
 			}
 		});
 
@@ -425,6 +441,16 @@ namespace jucePluginEditorLib
 	bool Editor::openContextMenuForParameter(const Rml::Event& _event)
 	{
 		const auto* param = getRmlParameterBinding()->getParameterForElement(_event.GetTargetElement());
+
+		if(!param)
+		{
+			for(auto* node = _event.GetTargetElement()->GetParentNode(); node && !param; node = node->GetParentNode())
+			{
+				if(dynamic_cast<const Rml::ElementFormControlInput*>(node))
+					param = getRmlParameterBinding()->getParameterForElement(node);
+			}
+		}
+
 		if(!param)
 			return false;
 
@@ -433,43 +459,44 @@ namespace jucePluginEditorLib
 		const auto& regions = controller.getParameterDescriptions().getRegions();
 		const auto paramRegionIds = controller.getRegionIdsForParameter(param);
 
-		if(paramRegionIds.empty())
-			return false;
-
 		const auto part = param->getPart();
+		const auto hasRegions = !paramRegionIds.empty();
 
 		juceRmlUi::Menu menu;
 
 		// Lock / Unlock
 
-		for (const auto& regionId : paramRegionIds)
+		if(hasRegions)
 		{
-			const auto& regionName = regions.find(regionId)->second.getName();
-
-			const auto isLocked = controller.getParameterLocking().isRegionLocked(part, regionId);
-
-			menu.addEntry(std::string(isLocked ? "Unlock" : "Lock") + std::string(" region '") + regionName + "'", [this, regionId, isLocked, part]
+			for (const auto& regionId : paramRegionIds)
 			{
-				auto& locking = m_processor.getController().getParameterLocking();
-				if(isLocked)
-					locking.unlockRegion(part, regionId);
-				else
-					locking.lockRegion(part, regionId);
-			});
-		}
+				const auto& regionName = regions.find(regionId)->second.getName();
 
-		// Copy to clipboard
+				const auto isLocked = controller.getParameterLocking().isRegionLocked(part, regionId);
 
-		menu.addSeparator();
+				menu.addEntry(std::string(isLocked ? "Unlock" : "Lock") + std::string(" region '") + regionName + "'", [this, regionId, isLocked, part]
+				{
+					auto& locking = m_processor.getController().getParameterLocking();
+					if(isLocked)
+						locking.unlockRegion(part, regionId);
+					else
+						locking.lockRegion(part, regionId);
+				});
+			}
 
-		for (const auto& regionId : paramRegionIds)
-		{
-			const auto& regionName = regions.find(regionId)->second.getName();
+			// Copy to clipboard
 
-			menu.addEntry(std::string("Copy region '") + regionName + "'", [this, regionId]
+			menu.addSeparator();
+
+			for (const auto& regionId : paramRegionIds)
 			{
-				copyRegionToClipboard(regionId);
-			});
+				const auto& regionName = regions.find(regionId)->second.getName();
+
+				menu.addEntry(std::string("Copy region '") + regionName + "'", [this, regionId]
+				{
+					copyRegionToClipboard(regionId);
+				});
+			}
 		}
 
 		// Paste from clipboard
@@ -478,34 +505,37 @@ namespace jucePluginEditorLib
 
 		if(!data.parameterValuesByRegion.empty())
 		{
-			bool haveSeparator = false;
-
-			for (const auto& paramRegionId : paramRegionIds)
+			if(hasRegions)
 			{
-				const auto it = data.parameterValuesByRegion.find(paramRegionId);
+				bool haveSeparator = false;
 
-				if(it == data.parameterValuesByRegion.end())
-					continue;
-
-				// if region is not fully covered, skip it
-				const auto& region = regions.find(it->first)->second;
-				if(it->second.size() < region.getParams().size())
-					continue;
-
-				const auto& parameterValues = it->second;
-
-				if(!haveSeparator)
+				for (const auto& paramRegionId : paramRegionIds)
 				{
-					menu.addSeparator();
-					haveSeparator = true;
+					const auto it = data.parameterValuesByRegion.find(paramRegionId);
+
+					if(it == data.parameterValuesByRegion.end())
+						continue;
+
+					// if region is not fully covered, skip it
+					const auto& region = regions.find(it->first)->second;
+					if(it->second.size() < region.getParams().size())
+						continue;
+
+					const auto& parameterValues = it->second;
+
+					if(!haveSeparator)
+					{
+						menu.addSeparator();
+						haveSeparator = true;
+					}
+
+					const auto& regionName = regions.find(paramRegionId)->second.getName();
+
+					menu.addEntry("Paste region '" + regionName + "'", [this, parameterValues]
+					{
+						setParameters(parameterValues);
+					});
 				}
-
-				const auto& regionName = regions.find(paramRegionId)->second.getName();
-
-				menu.addEntry("Paste region '" + regionName + "'", [this, parameterValues]
-				{
-					setParameters(parameterValues);
-				});
 			}
 
 			menu.addSeparator();
@@ -532,39 +562,131 @@ namespace jucePluginEditorLib
 
 		// Parameter links
 
-		juceRmlUi::Menu linkMenu;
-
-		menu.addSeparator();
-
-		for (const auto& regionId : paramRegionIds)
+		if(controller.getPartCount() > 1)
 		{
-			juceRmlUi::Menu regionMenu;
+			juceRmlUi::Menu linkMenu;
 
-			const auto currentPart = controller.getCurrentPart();
+			menu.addSeparator();
 
-			for(uint8_t p=0; p<controller.getPartCount(); ++p)
+			if(hasRegions)
 			{
-				if(p == currentPart)
-					continue;
-
-				const auto isLinked = controller.getParameterLinks().isRegionLinked(regionId, currentPart, p);
-
-				regionMenu.addEntry(std::string("Link Part ") + std::to_string(p+1), isLinked, [this, regionId, isLinked, currentPart, p]
+				for (const auto& regionId : paramRegionIds)
 				{
-					auto& links = m_processor.getController().getParameterLinks();
+					juceRmlUi::Menu regionMenu;
 
-					if(isLinked)
-						links.unlinkRegion(regionId, currentPart, p);
-					else
-						links.linkRegion(regionId, currentPart, p, true);
-				});
+					const auto currentPart = controller.getCurrentPart();
+
+					for(uint8_t p=0; p<controller.getPartCount(); ++p)
+					{
+						if(p == currentPart)
+							continue;
+
+						const auto isLinked = controller.getParameterLinks().isRegionLinked(regionId, currentPart, p);
+
+						regionMenu.addEntry(std::string("Link Part ") + std::to_string(p+1), isLinked, [this, regionId, isLinked, currentPart, p]
+						{
+							auto& links = m_processor.getController().getParameterLinks();
+
+							if(isLinked)
+								links.unlinkRegion(regionId, currentPart, p);
+							else if(links.isRegionLinked(regionId, p, currentPart))
+								juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Parameter Link", "Cannot create link: a link in the opposite direction already exists.\nRemove the existing link first.");
+							else
+								links.linkRegion(regionId, currentPart, p, true);
+						});
+					}
+
+					const auto& regionName = regions.find(regionId)->second.getName();
+					linkMenu.addSubMenu("Region '" + regionName + "'", std::move(regionMenu));
+				}
 			}
 
-			const auto& regionName = regions.find(regionId)->second.getName();
-			linkMenu.addSubMenu("Region '" + regionName + "'", std::move(regionMenu));
+			{
+				juceRmlUi::Menu paramMenu;
+
+				const auto currentPart = controller.getCurrentPart();
+				const auto& paramName = param->getDescription().name;
+
+				for(uint8_t p=0; p<controller.getPartCount(); ++p)
+				{
+					if(p == currentPart)
+						continue;
+
+					auto* sourceParam = controller.getParameter(paramName, currentPart);
+					auto* destParam = controller.getParameter(paramName, p);
+
+					if(!sourceParam || !destParam)
+						continue;
+
+					const auto isLinked = sourceParam->getLinkState() != pluginLib::ParameterLinkType::None;
+
+					paramMenu.addEntry(std::string("Link Part ") + std::to_string(p+1), isLinked, [this, sourceParam, destParam, isLinked]
+					{
+						auto& links = m_processor.getController().getParameterLinks();
+
+						if(isLinked)
+							links.remove(sourceParam, destParam);
+						else if(!links.add(sourceParam, destParam, true))
+							juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Parameter Link", "Cannot create link: a link in the opposite direction already exists.\nRemove the existing link first.");
+					});
+				}
+
+				linkMenu.addSubMenu("Parameter '" + param->getDescription().displayName + "'", std::move(paramMenu));
+			}
+
+			menu.addSubMenu("Parameter Links", std::move(linkMenu));
 		}
 
-		menu.addSubMenu("Parameter Links", std::move(linkMenu));
+		// MIDI Learn
+		menu.addSeparator();
+
+		if (m_midiLearnModeActive)
+		{
+			menu.addEntry("Exit MIDI Learn Mode", [this]()
+			{
+				setMidiLearnMode(false);
+			});
+		}
+		else
+		{
+			menu.addEntry("MIDI Learn Mode", [this]()
+			{
+				setMidiLearnMode(true);
+			});
+		}
+
+		{
+			auto* translator = m_processor.getMidiLearnTranslator();
+			if (translator)
+			{
+				const auto& preset = translator->getPreset();
+				const auto mappings = preset.findMappingsByParam(param->getDescription().name);
+				if (!mappings.empty())
+				{
+					menu.addEntry("Clear MIDI Mapping", [this, param]()
+					{
+						auto* t = m_processor.getMidiLearnTranslator();
+						if (!t) return;
+						auto preset = t->getPreset();
+						auto& m = preset.getMappings();
+						const auto paramName = param->getDescription().name;
+						const auto paramPart = param->getPart();
+						m.erase(std::remove_if(m.begin(), m.end(),
+							[&paramName, paramPart](const pluginLib::MidiLearnMapping& _m)
+							{
+								if (_m.paramName != paramName)
+									return false;
+								if (_m.part == pluginLib::MidiLearnMapping::AutoPart)
+									return true;
+								return _m.part == paramPart;
+							}), m.end());
+						t->setPreset(preset);
+						if (m_overlays)
+							m_overlays->refreshMidiLearnOverlays();
+					});
+				}
+			}
+		}
 
 		auto& midiPackets = m_processor.getController().getParameterDescriptions().getMidiPackets();
 		for (const auto& mp : midiPackets)
@@ -668,12 +790,43 @@ namespace jucePluginEditorLib
 		_menu.addEntry(".mid", [this, _func]{_func(pluginLib::FileType::Mid);});
 	}
 
+	void Editor::registerSettings(std::vector<std::unique_ptr<SettingsPlugin>>& _plugins)
+	{
+		_plugins.push_back(std::make_unique<SettingsSkin>(getProcessor()));
+		_plugins.push_back(std::make_unique<SettingsGui>(getProcessor()));
+		_plugins.push_back(std::make_unique<SettingsMidi>(getProcessor()));
+		_plugins.push_back(std::make_unique<SettingsMidiLearn>(getProcessor()));
+		_plugins.push_back(std::make_unique<SettingsDspAudio>(getProcessor()));
+		_plugins.push_back(std::make_unique<SettingsDspBridge>(getProcessor()));
+	}
+
 	juce::Component* Editor::createRmlUiComponent(const std::string& _rmlFile)
 	{
 		if (!m_rmlPlugin)
 			m_rmlPlugin.reset(new rmlPlugin::RmlPlugin(m_rmlInterfaces.getCoreInstance(), getProcessor().getController()));
 
 		juceRmlUi::RmlComponentConfig config;
+
+		// add product specific settings template files
+		const auto productName = getProcessor().getProductName();
+
+		auto files = getAllFilenames();
+
+		for (auto& file : files)
+		{
+			if (!baseLib::filesystem::hasExtension(file, ".rml"))
+				continue;
+
+			if (file.find(productName) == std::string::npos)
+				continue;
+
+			const std::string key = "tus_settings_";
+
+			if (file.size() <= key.size() || file.substr(0, key.size()) != key)
+				continue;
+
+			config.additionalTemplateFiles.push_back(std::move(file));
+		}
 
 		config.refreshRateLimitHz = m_processor.getConfig().getIntValue("refreshRateLimitHz", -1);
 
@@ -695,22 +848,41 @@ namespace jucePluginEditorLib
 
 		juceRmlUi::EventListener::Add(doc, Rml::EventId::Keydown, [this](Rml::Event& _event)
 		{
-			if (!juceRmlUi::helper::getKeyModCommand(_event))
-				return;
-
-			switch (juceRmlUi::helper::getKeyIdentifier(_event))
+			if (juceRmlUi::helper::getKeyModCommand(_event))
 			{
-			case Rml::Input::KI_C:
-				copyCurrentPatchToClipboard();
-				_event.StopPropagation();
-				break;
-			case Rml::Input::KI_V:
-				replaceCurrentPatchFromClipboard();
-				_event.StopPropagation();
-				break;
-			default:;
+				switch (juceRmlUi::helper::getKeyIdentifier(_event))
+				{
+				case Rml::Input::KI_C:
+					copyCurrentPatchToClipboard();
+					_event.StopPropagation();
+					break;
+				case Rml::Input::KI_V:
+					replaceCurrentPatchFromClipboard();
+					_event.StopPropagation();
+					break;
+				default:;
+				}
+			}
+			else
+			{
+				switch (juceRmlUi::helper::getKeyIdentifier(_event))
+				{
+				case Rml::Input::KI_ESCAPE:
+					if (m_midiLearnModeActive)
+					{
+						setMidiLearnMode(false);
+					}
+					else
+					{
+						toggleSettings();
+					}
+					_event.StopPropagation();
+					break;
+				default:;
+				}
 			}
 		});
+
 		return comp;
 	}
 
@@ -719,6 +891,18 @@ namespace jucePluginEditorLib
 		m_rmlPlugin->onContextCreate(&_context, _rmlComponent);
 
 		m_overlays.reset(new ParameterOverlays(*this, *m_rmlPlugin->getParameterBinding(&_context)));
+
+		if (auto* translator = m_processor.getMidiLearnTranslator())
+		{
+			translator->onPresetChanged = [this]()
+			{
+				juce::MessageManager::callAsync([this]
+				{
+					if (m_overlays)
+						m_overlays->refreshMidiLearnOverlays();
+				});
+			};
+		}
 
 		m_pluginDataModel.reset(new PluginDataModel(*this, _context, [this](PluginDataModel& _model)
 		{
@@ -784,6 +968,154 @@ namespace jucePluginEditorLib
 		if (!m_rmlComponent)
 			return {};
 		return m_rmlComponent->getDocument();
+	}
+
+	void Editor::onMidiLearnRequested(const pluginLib::Parameter* _param)
+	{
+	}
+
+	void Editor::setMidiLearnMode(const bool _enable)
+	{
+		if (m_midiLearnModeActive == _enable)
+			return;
+
+		m_midiLearnModeActive = _enable;
+		m_midiLearnSelectedParam = nullptr;
+
+		auto* translator = m_processor.getMidiLearnTranslator();
+
+		if (!_enable)
+		{
+			if (translator)
+				translator->cancelLearning();
+
+			// clear all callbacks
+			if (translator)
+			{
+				translator->onLearningProgress = nullptr;
+				translator->onMappingLearned = nullptr;
+			}
+		}
+		else
+		{
+			if (translator)
+			{
+				translator->onMappingLearned = [this](pluginLib::MidiLearnMapping _mapping)
+				{
+					auto* t = m_processor.getMidiLearnTranslator();
+					if (!t)
+						return;
+
+					auto preset = t->getPreset();
+					const auto& existingMappings = preset.getMappings();
+
+					// Determine if we can use AllChannels/AutoPart or must keep specific values.
+					// Only upgrade to All/Auto if no existing mapping for the same CC uses specific values.
+					const auto isSameSource = [&_mapping](const pluginLib::MidiLearnMapping& _m)
+					{
+						return _m.type == _mapping.type &&
+							(_m.type == pluginLib::MidiLearnMapping::Type::ChannelPressure ||
+							 _m.type == pluginLib::MidiLearnMapping::Type::PitchBend ||
+							 _m.controller == _mapping.controller);
+					};
+
+					const bool hasChannelSpecificCC = std::any_of(existingMappings.begin(), existingMappings.end(),
+						[&](const pluginLib::MidiLearnMapping& _m)
+						{
+							return isSameSource(_m) &&
+								_m.channel != pluginLib::MidiLearnMapping::AllChannels;
+						});
+
+					const bool hasPartSpecificParam = std::any_of(existingMappings.begin(), existingMappings.end(),
+						[&_mapping](const pluginLib::MidiLearnMapping& _m)
+						{
+							return _m.paramName == _mapping.paramName &&
+								_m.part != pluginLib::MidiLearnMapping::AutoPart;
+						});
+
+					// Upgrade to AllChannels only if no existing CC mapping uses a specific channel
+					if (!hasChannelSpecificCC)
+						_mapping.channel = pluginLib::MidiLearnMapping::AllChannels;
+
+					// Upgrade to AutoPart only if no existing param mapping uses a specific part
+					if (!hasPartSpecificParam)
+						_mapping.part = pluginLib::MidiLearnMapping::AutoPart;
+					else if (m_midiLearnSelectedParam)
+						_mapping.part = m_midiLearnSelectedParam->getPart();
+
+					auto& m = preset.getMappings();
+					m.erase(std::remove_if(m.begin(), m.end(),
+						[&_mapping](const pluginLib::MidiLearnMapping& _m)
+						{
+							// Check if same parameter — only remove if parts collide
+							if (_m.paramName == _mapping.paramName)
+							{
+								// New is AutoPart → replaces all part variants
+								if (_mapping.part == pluginLib::MidiLearnMapping::AutoPart)
+									return true;
+								// Existing is AutoPart → gets replaced by specific part
+								if (_m.part == pluginLib::MidiLearnMapping::AutoPart)
+									return true;
+								// Both specific → only collide if same part
+								if (_m.part == _mapping.part)
+									return true;
+							}
+
+							// Check if same MIDI source (type + controller + channel collision)
+							const bool sameSource = _m.type == _mapping.type &&
+								(_m.type == pluginLib::MidiLearnMapping::Type::ChannelPressure ||
+								 _m.type == pluginLib::MidiLearnMapping::Type::PitchBend ||
+								 _m.controller == _mapping.controller);
+
+							if (!sameSource)
+								return false;
+
+							// New mapping is AllChannels → remove all channel variants
+							if (_mapping.channel == pluginLib::MidiLearnMapping::AllChannels)
+								return true;
+
+							// Existing mapping is AllChannels → conflicts with any specific channel
+							if (_m.channel == pluginLib::MidiLearnMapping::AllChannels)
+								return true;
+
+							// Both are specific channels → only collide if same channel
+							return _m.channel == _mapping.channel;
+						}), m.end());
+
+					// Inherit feedback targets from preset default
+					_mapping.feedbackTargets = preset.getDefaultFeedbackTargets();
+
+					preset.addMapping(_mapping);
+					t->setPreset(preset);
+
+					// Dispatch overlay update to message thread - this callback fires from audio/MIDI thread
+					// and RmlUi DOM manipulation is not thread-safe
+					auto* selectedParam = m_midiLearnSelectedParam;
+					m_midiLearnSelectedParam = nullptr;
+
+					juce::MessageManager::callAsync([this, selectedParam]
+					{
+						if (m_overlays)
+						{
+							m_overlays->forEachOverlayForParameter(selectedParam, [](ParameterOverlay& _overlay)
+							{
+								_overlay.setMidiLearnListening(false);
+							});
+
+							// Refresh all overlays in case a CC was reassigned from another parameter
+							m_overlays->refreshMidiLearnOverlays();
+						}
+
+						m_processor.saveDefaultMidiLearnPreset();
+					});
+				};
+
+				translator->onLearningProgress = nullptr;
+			}
+		}
+
+		if (m_overlays)
+			m_overlays->setMidiLearnMode(_enable);
 	}
 
 	std::vector<Rml::Element*> Editor::findChildreByParam(const std::string& _param, uint8_t _part,	const size_t _expectedCount, bool _visibleOnly) const
@@ -954,5 +1286,23 @@ namespace jucePluginEditorLib
 	std::string Editor::getAbsoluteSkinFolder(const std::string& _skinFolder) const
 	{
 		return getAbsoluteSkinFolder(m_processor, _skinFolder);
+	}
+
+	void Editor::toggleSettings()
+	{
+		showSettings(!settingsOpened());
+	}
+
+	void Editor::showSettings(const bool _show)
+	{
+		if (!_show && m_settings)
+		{
+			m_settings.reset();
+			onSettingsClosed();
+		}
+		else if (_show && !m_settings)
+		{
+			m_settings = Settings::createFromTemplate(*this, "settings", getRmlRootElement());
+		}
 	}
 }

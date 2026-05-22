@@ -13,6 +13,11 @@
 #include "RmlUi_Renderer_GL2.h"
 #include "RmlUi_Renderer_GL3.h"
 
+#ifdef RMLUI_METAL_RENDERER
+#include "RmlUi_Renderer_Metal.h"
+#include "MetalContext.h"
+#endif
+
 #include "baseLib/filesystem.h"
 #include "baseLib/logging.h"
 
@@ -57,6 +62,13 @@ namespace juceRmlUi
 		    }
 			return false;
 		}
+
+		static constexpr RendererProxy::RendererConfig g_renderConfigSoftware {true, false, false};
+		static constexpr RendererProxy::RendererConfig g_renderConfigGL2 {false, false, false};
+		static constexpr RendererProxy::RendererConfig g_renderConfigGL3 {true, true, true};
+#ifdef RMLUI_METAL_RENDERER
+		static constexpr RendererProxy::RendererConfig g_renderConfigMetal {true, true, true};
+#endif
 	}
 
 	RmlComponent::RmlComponent(RmlInterfaces& _interfaces, DataProvider& _dataProvider, std::string _rootRmlFilename, const float _contentScale/* = 1.0f*/, const ContextCreatedCallback& _contextCreatedCallback, const DocumentLoadFailedCallback& _docLoadFailedCallback, const RmlComponentConfig& _config)
@@ -78,21 +90,34 @@ namespace juceRmlUi
 		{
 			m_renderInterface.reset(new RendererJuce(m_coreInstance));
 			m_renderType = Renderer::Software;
-			m_renderProxy->setRenderer(m_renderInterface.get());
+			m_renderProxy->setRenderer(m_renderInterface.get(), g_renderConfigSoftware);
 		}
 		else
 		{
-			m_openGLContext.reset(new juce::OpenGLContext());
+#ifdef RMLUI_METAL_RENDERER
+			if (RmlMetal::IsSupported())
+			{
+					m_metalContext = std::make_unique<MetalContext>();
+				m_metalContext->setListener(this);
+			}
+			else
+			{
+				}
+			if (!m_metalContext)
+#endif
+			{
+				m_openGLContext.reset(new juce::OpenGLContext());
 
-			m_openGLContext->setMultisamplingEnabled(true);
-			m_openGLContext->setRenderer(this);
-			m_openGLContext->setComponentPaintingEnabled(false);
-			m_openGLContext->setContinuousRepainting(false);
+				m_openGLContext->setMultisamplingEnabled(true);
+				m_openGLContext->setRenderer(this);
+				m_openGLContext->setComponentPaintingEnabled(false);
+				m_openGLContext->setContinuousRepainting(false);
 
 #if JUCE_MAC
-			// Required on macOS to get a core profile, we don't want a compatibility profile
-			m_openGLContext->setOpenGLVersionRequired(juce::OpenGLContext::openGL4_1);
+				// Required on macOS to get a core profile, we don't want a compatibility profile
+				m_openGLContext->setOpenGLVersionRequired(juce::OpenGLContext::openGL4_1);
 #endif
+			}
 		}
 
 		setWantsKeyboardFocus(true);
@@ -139,7 +164,11 @@ namespace juceRmlUi
 
 	RmlComponent::~RmlComponent()
 	{
-		m_renderProxy->setRenderer(nullptr);
+#ifdef RMLUI_METAL_RENDERER
+		if (m_metalContext)
+			m_metalContext->detach();
+#endif
+		m_renderProxy->setRenderer(nullptr, g_renderConfigSoftware);
 
 		if (m_lookAndFeelParent)
 			m_lookAndFeelParent->setLookAndFeel(nullptr);
@@ -256,7 +285,7 @@ namespace juceRmlUi
 
 		m_openGLversion = version;
 
-		m_renderProxy->setRenderer(m_renderInterface.get());
+		m_renderProxy->setRenderer(m_renderInterface.get(), m_renderType == Renderer::Gl3 ? g_renderConfigGL3 : g_renderConfigGL2);
 
 		{
 			std::scoped_lock lock(m_timerMutex);
@@ -355,9 +384,83 @@ namespace juceRmlUi
 		if (m_renderType == Renderer::Software)
 			return;
 
-		m_renderProxy->setRenderer(nullptr);
+		m_renderProxy->setRenderer(nullptr, g_renderConfigSoftware);
 		m_renderInterface.reset();
 	}
+
+#ifdef RMLUI_METAL_RENDERER
+	void RmlComponent::metalContextCreated(MetalContext& _context)
+	{
+		RmlInterfaces::ScopedAccess access(*this);
+
+		m_renderInterface.reset(new RenderInterface_Metal(m_coreInstance, _context.getDevice()));
+		m_renderType = Renderer::Metal;
+
+		auto* metalRenderer = dynamic_cast<RenderInterface_Metal*>(m_renderInterface.get());
+		if (!metalRenderer || !*metalRenderer)
+		{
+			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to initialize Metal renderer, falling back to software");
+			m_renderInterface.reset();
+			m_renderType = Renderer::Software;
+			return;
+		}
+
+		m_renderProxy->setRenderer(m_renderInterface.get(), g_renderConfigMetal);
+
+		// Set a fake GL version to trigger the advancedrenderer theme activation in update()
+		m_openGLversion = g_advancedRendererMinimumGLversion;
+
+		{
+			std::scoped_lock lock(m_timerMutex);
+			m_nextFrameTime = m_rmlInterfaces.getSystemInterface().GetElapsedTime();
+			startNextFrameTimer();
+		}
+
+		if (!m_rmlContext)
+			createRmlContext(nullptr);
+
+		// Allow update() to proceed. Without this, the update/render
+		// cycle deadlocks after a renderer switch because m_renderDone
+		// defaults to false and update() waits for it.
+		m_renderDone = true;
+	}
+
+	void RmlComponent::renderMetal(MetalContext& _context)
+	{
+		// Skip frame if there's nothing to render — keeps the last presented
+		// drawable visible instead of flashing black during rate limiting.
+		if (!m_renderProxy->hasRenderFunctions())
+			return;
+
+		RmlInterfaces::ScopedAccess access(*this);
+
+		if (!m_rmlContext || !m_renderInterface)
+			return;
+
+		auto* metal = dynamic_cast<RenderInterface_Metal*>(m_renderInterface.get());
+		if (!metal) return;
+
+		const auto size = getRenderSize();
+		if (size.x <= 0 || size.y <= 0) return;
+		auto* drawable = _context.nextDrawable();
+		if (!drawable) return;
+
+		metal->SetViewport(size.x, size.y);
+		metal->BeginFrame(drawable);
+
+		m_renderProxy->executeRenderFunctions();
+
+		metal->EndFrame();
+
+		m_renderDone = true;
+	}
+
+	void RmlComponent::metalContextClosing(MetalContext&)
+	{
+		m_renderProxy->setRenderer(nullptr, g_renderConfigSoftware);
+		m_renderInterface.reset();
+	}
+#endif
 
 	void RmlComponent::visibilityChanged()
 	{
@@ -365,6 +468,11 @@ namespace juceRmlUi
 
 		if (isVisible() && m_openGLContext && !m_openGLContext->isAttached())
 			m_openGLContext->attachTo(*this);
+
+#ifdef RMLUI_METAL_RENDERER
+		if (isVisible() && m_metalContext)
+			m_metalContext->attachTo(*this);
+#endif
 	}
 
 	void RmlComponent::mouseDown(const juce::MouseEvent& _event)
@@ -572,6 +680,12 @@ namespace juceRmlUi
 		m_lookAndFeelParent = rootComponent;
 		rootComponent->setLookAndFeel(m_lookAndFeel);
 
+#ifdef RMLUI_METAL_RENDERER
+		// Retry Metal attachment now that we have a parent hierarchy (and likely a native peer)
+		if (m_metalContext)
+			m_metalContext->attachTo(*this);
+#endif
+
 		Component::parentHierarchyChanged();
 	}
 
@@ -615,7 +729,20 @@ namespace juceRmlUi
 	{
 		if (m_openGLContext)
 			return static_cast<float>(m_openGLContext->getRenderingScale());
-		return 1.0f;
+
+#ifdef RMLUI_METAL_RENDERER
+		if (m_metalContext)
+			return static_cast<float>(m_metalContext->getRenderingScale());
+#endif
+
+		float scale = 1.0f;
+		const Component* t = this;
+		while (t)
+		{
+			scale *= std::sqrt (std::abs (t->getTransform().getDeterminant()));
+			t = t->getParentComponent();
+		}
+		return scale;
 	}
 
 	void RmlComponent::resize(const int _width, const int _height)
@@ -681,7 +808,7 @@ namespace juceRmlUi
 		if (m_renderType == Renderer::Software && !m_renderInterface)
 		{
 			m_renderInterface.reset(new RendererJuce(m_coreInstance));
-			m_renderProxy->setRenderer(m_renderInterface.get());
+			m_renderProxy->setRenderer(m_renderInterface.get(), g_renderConfigSoftware);
 		}
 		else if (!m_renderInterface)
 			return;
@@ -703,7 +830,12 @@ namespace juceRmlUi
 			{
 				m_lastOpenGLversion = m_openGLversion;
 
-				m_rmlContext->ActivateTheme("advancedrenderer", m_lastOpenGLversion >= g_advancedRendererMinimumGLversion);
+				const bool isAdvanced = m_lastOpenGLversion >= g_advancedRendererMinimumGLversion
+#ifdef RMLUI_METAL_RENDERER
+				|| m_renderType == Renderer::Metal
+#endif
+				;
+			m_rmlContext->ActivateTheme("advancedrenderer", isAdvanced);
 			}
 
 			evPreUpdate(this);
@@ -769,6 +901,10 @@ namespace juceRmlUi
 		}
 		else if (m_openGLContext)
 			m_openGLContext->triggerRepaint();
+#ifdef RMLUI_METAL_RENDERER
+		else if (m_metalContext)
+			m_metalContext->triggerRepaint();
+#endif
 
 		std::scoped_lock lock(m_timerMutex);
 		// we make the timer run a bit faster to prevent that we miss the next frame time by a too large margin
@@ -856,22 +992,24 @@ namespace juceRmlUi
 		if (!r)
 			return;
 
-		r->beginFrame(_g);
-
-		m_renderProxy->executeRenderFunctions();
-
 		auto* rootComp = getTopLevelComponent();
 		auto* laf = dynamic_cast<LookAndFeel*>(&rootComp->getLookAndFeel());
 
-		if (laf)
-		{
-			r->endFrame(laf->getCurrentImage());
-		}
-		else
-		{
-			static juce::Image nullImage;
-			r->endFrame(nullImage);
-		}
+		const auto& img = laf ? laf->getCurrentImage() : juce::Image();
+
+		// If the clip origin is offset (window partially off-screen), we cannot render
+		// directly to the LookAndFeel image as it ignores the clip offset. Fall back to
+		// the slower Graphics path which respects the JUCE transform/clip pipeline.
+		const auto clipOrigin = _g.getClipBounds().getPosition();
+		const bool useDirectPath = img.isValid() && clipOrigin.isOrigin();
+
+		const auto size = getRenderSize();
+
+		r->beginFrame(_g, size);
+
+		m_renderProxy->executeRenderFunctions();
+
+		r->endFrame(useDirectPath ? img : juce::Image(), getOpenGLRenderingScale());
 
 		m_renderDone = true;
 	}
@@ -914,7 +1052,29 @@ namespace juceRmlUi
 			// On Linux, some hosts (for example Carla) like to set the locale to the current user language, this breaks float number parsing, so we force the "C" locale here
 			(void)setlocale(LC_NUMERIC, "C");
 
-			m_document = m_rmlContext->LoadDocument(m_rootRmlFilename);
+			Rml::String rmlString;
+			m_coreInstance.file_interface->LoadFile(m_rootRmlFilename, rmlString);
+
+			// inject more templates to prevent that each GUI has to add them
+			const std::string key = "<head>";
+			auto pos = rmlString.find(key);
+			if (pos != Rml::String::npos)
+			{
+				auto addTemplate = [&](const std::string& _name)
+				{
+					const Rml::String templates = R"(<link type="text/template" href=")" + _name + "\"/>";
+					rmlString.insert(pos + key.length(), templates);
+				};
+
+				addTemplate("tus_patchmanager.rml");
+				addTemplate("tus_colorpicker.rml");
+				addTemplate("tus_settings.rml");
+
+				for (const auto& templateName : m_config.additionalTemplateFiles)
+					addTemplate(templateName);
+			}
+
+			m_document = m_rmlContext->LoadDocumentFromMemory(rmlString, m_rootRmlFilename);
 
 			if (m_document)
 			{
@@ -938,7 +1098,8 @@ namespace juceRmlUi
 
 			sys.endLogRecording();
 
-			const auto logs = sys.getRecordedLogEntries();
+			auto logs = sys.getRecordedLogEntries();
+			SystemInterface::filterLogEntries(logs, {Rml::Log::LT_ERROR, Rml::Log::LT_ASSERT, Rml::Log::LT_WARNING});
 
 			if (!logs.empty())
 			{

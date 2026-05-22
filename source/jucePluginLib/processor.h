@@ -2,9 +2,13 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <mutex>
+
 #include "bypassBuffer.h"
 #include "controller.h"
+#include "midiLearnTranslator.h"
 #include "midiports.h"
+#include "programChangeRouter.h"
 
 #include "bridgeLib/types.h"
 
@@ -72,6 +76,8 @@ namespace pluginLib
 
 		synthLib::Plugin& getPlugin();
 
+		ProgramChangeRouter& getProgramChangeRouter() { return m_programChangeRouter; }
+
 		virtual synthLib::Device* createDevice() = 0;
 		virtual bridgeClient::RemoteDevice* createRemoteDevice(const synthLib::DeviceCreateParams& _params);
 		virtual void getRemoteDeviceParams(synthLib::DeviceCreateParams& _params) const;
@@ -122,11 +128,15 @@ namespace pluginLib
 		bool setDspClockPercent(uint32_t _percent = 100);
 		uint32_t getDspClockPercent() const;
 		uint64_t getDspClockHz() const;
+		bool canModifyDspClock() const;
 
 		bool setPreferredDeviceSamplerate(float _samplerate);
 		float getPreferredDeviceSamplerate() const;
 		std::vector<float> getDeviceSupportedSamplerates() const;
 		std::vector<float> getDevicePreferredSamplerates() const;
+
+		void setResamplerMode(synthLib::Resampler::Mode _mode);
+		synthLib::Resampler::Mode getResamplerMode() const { return m_resamplerMode; }
 
 		float getHostSamplerate() const { return m_hostSamplerate; }
 
@@ -159,6 +169,12 @@ namespace pluginLib
 
 		const synthLib::MidiRoutingMatrix& getMidiRoutingMatrix() const { return m_midiRoutingMatrix; }
 		synthLib::MidiRoutingMatrix& getMidiRoutingMatrix() { return m_midiRoutingMatrix; }
+
+		MidiLearnTranslator* getMidiLearnTranslator() { return m_midiLearnTranslator.get(); }
+
+		std::string getMidiLearnFolder() const;
+		void saveDefaultMidiLearnPreset();
+		void loadDefaultMidiLearnPreset();
 
 	protected:
 		void destroyController();
@@ -209,11 +225,14 @@ namespace pluginLib
 		std::vector<synthLib::SMidiEvent> m_midiOut;
 
 	private:
+		void addHostMidiFeedback(const synthLib::SMidiEvent& _event);
+
 		const Properties m_properties;
 		float m_outputGain = 1.0f;
 		float m_inputGain = 1.0f;
 		uint32_t m_dspClockPercent = 100;
 		float m_preferredDeviceSamplerate = 0.0f;
+		synthLib::Resampler::Mode m_resamplerMode = synthLib::Resampler::Mode::Legacy;
 		float m_hostSamplerate = 0.0f;
 		MidiPorts m_midiPorts;
 		BypassBuffer m_bypassBuffer;
@@ -223,5 +242,11 @@ namespace pluginLib
 		bridgeLib::SessionId m_remoteSessionId;
 		synthLib::MidiRoutingMatrix m_midiRoutingMatrix;
 		std::string m_programName;
+		std::unique_ptr<MidiLearnTranslator> m_midiLearnTranslator;
+		ProgramChangeRouter m_programChangeRouter;
+
+		// Host MIDI feedback queue (filled from parameter listeners, drained in processBlock)
+		std::mutex m_hostFeedbackMutex;
+		std::vector<synthLib::SMidiEvent> m_hostFeedbackQueue;
 	};
 }

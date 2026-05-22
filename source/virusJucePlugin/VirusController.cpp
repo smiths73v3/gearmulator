@@ -144,6 +144,11 @@ namespace virus
 			// always allow play mode change as the UI will update based on the play mode parameter, we must not
 			// drop it even if sent from the synth as it would desync the UI
 		}
+		else if (!partParams.empty() && partParams.front()->getDescription().isNonPartSensitive())
+		{
+			// always allow global parameters (e.g. Master Volume) as they are only delivered
+			// via parameter change messages, never via single/multi dumps
+		}
 		else if(_source == synthLib::MidiEventSource::Device)
 		{
 			// TI DSP sends parameter changes back as sysex, unsure why. Ignore them as it stops
@@ -400,6 +405,31 @@ namespace virus
     	return parseMidiPacket(*m, _data, _parameterValues, _msg);
     }
 
+	std::vector<uint8_t> Controller::getPartsForMidiChannel(const uint8_t _channel)
+	{
+		std::vector<uint8_t> parts;
+		if(isMultiMode())
+		{
+			for(uint8_t p=0; p<getPartCount(); ++p)
+			{
+				const auto idx = getParameterIndexByName(g_paramPartMidiChannel);
+
+				if(idx == pluginLib::Controller::InvalidParameterIndex)
+					continue;
+
+				const auto v = getParameter(idx, p);
+				if(v->getUnnormalizedValue() == _channel)
+					parts.push_back(p);
+			}
+		}
+		else
+		{
+			if (_channel == 0)
+				parts.push_back(0);
+		}
+		return parts;
+	}
+
 	void Controller::parseSingle(const pluginLib::SysEx& _msg, const pluginLib::MidiPacket::Data& _data, const pluginLib::MidiPacket::ParamValues& _parameterValues)
 	{
         SinglePatch patch;
@@ -542,10 +572,10 @@ namespace virus
 		}
     }
 
-	bool Controller::parseControllerDump(const synthLib::SMidiEvent& _e) const
+	bool Controller::parseControllerDump(const synthLib::SMidiEvent& _e)
 	{
 		const uint8_t status = _e.a & 0xf0;
-    	const uint8_t part = _e.a & 0x0f;
+    	const uint8_t channel = _e.a & 0x0f;
 
 		uint8_t page;
 
@@ -564,14 +594,14 @@ namespace virus
 		{
 			if(isMultiMode())
 			{
-				for(uint8_t p=0; p<getPartCount(); ++p)
-				{
-					const auto idx = getParameterIndexByName("Part Midi Channel");
-					if(idx == pluginLib::Controller::InvalidParameterIndex)
-						continue;
+				const auto idx = getParameterIndexByName(g_paramPartMidiChannel);
+				assert(idx != pluginLib::Controller::InvalidParameterIndex);
 
+				auto parts = getPartsForMidiChannel(channel);
+				for(const auto& p : parts)
+				{
 					const auto v = getParameter(idx, p);
-					if(v->getUnnormalizedValue() == part)
+					if(v->getUnnormalizedValue() == channel)
 						requestSingle(toMidiByte(virusLib::BankNumber::EditBuffer), p);
 				}
 			}
@@ -586,7 +616,7 @@ namespace virus
 			return false;
 		}
 
-		const auto& params = findSynthParam(part, page, _e.b);
+		const auto& params = findSynthParam(channel, page, _e.b);
 		for (const auto & p : params)
 			p->setValueFromSynth(_e.c, midiEventSourceToParameterOrigin(_e.source));
 
@@ -658,28 +688,39 @@ namespace virus
 
     void Controller::requestRomBanks()
     {
-		switch(m_processor.getModel())
-		{
-        default:
-        case virusLib::DeviceModel::A:
-        case virusLib::DeviceModel::B:
-        case virusLib::DeviceModel::C:
-			m_singles.resize(8);
-			break;
-        case virusLib::DeviceModel::Snow:
-        case virusLib::DeviceModel::TI:
-        case virusLib::DeviceModel::TI2:
-        	m_singles.resize(
-                virusLib::ROMFile::getRomBankCount(virusLib::DeviceModel::TI) +
-                virusLib::ROMFile::getRomBankCount(virusLib::DeviceModel::TI2) +
-                virusLib::ROMFile::getRomBankCount(virusLib::DeviceModel::Snow) +
-                2
-            );
-			break;
-        }
+		const auto* rom = m_processor.getSelectedRom();
 
-    	for(uint8_t i=3; i<=getBankCount(); ++i)
-			requestSingleBank(i);
+		if (!rom)
+			return;
+
+		// 2 RAM banks (A, B) + ROM banks from ROM file
+		m_singles.resize(2 + rom->getNumSingleBanks());
+
+		// Populate ROM banks directly from ROM data instead of requesting via MIDI
+		for (uint32_t b = 2; b < getBankCount(); ++b)
+		{
+			virusLib::ROMFile::TPreset firstPreset;
+			if (!rom->getSingle(static_cast<int>(b - 2), 0, firstPreset))
+				break;
+			if (virusLib::ROMFile::getSingleName(firstPreset).size() != 10)
+				break;
+
+			for (uint8_t p = 0; p < 128; ++p)
+			{
+				virusLib::ROMFile::TPreset preset;
+				if (!rom->getSingle(static_cast<int>(b - 2), p, preset))
+					break;
+
+				const auto name = virusLib::ROMFile::getSingleName(preset);
+				if (name.size() != 10)
+					break;
+
+				auto& patch = m_singles[b][p];
+				patch.name = name;
+				patch.bankNumber = virusLib::fromArrayIndex(static_cast<uint8_t>(b));
+				patch.progNumber = p;
+			}
+		}
     }
 
     bool Controller::sendSysEx(MidiPacketType _type) const

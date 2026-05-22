@@ -41,7 +41,7 @@ namespace jucePluginEditorLib::patchManagerRml
 
 			createItemForDataSource(d);
 
-			if (size() == 1 && oldCount == 0 && getGroupType() != patchManager::GroupType::Factory)
+			if (size() == 1 && oldCount == 0 && getGroupType() != patchManager::GroupType::Factory && getGroupType() != patchManager::GroupType::MidiBanks)
 				setOpened(true);
 		}
 	}
@@ -139,10 +139,6 @@ namespace jucePluginEditorLib::patchManagerRml
 		{
 			parentNeeded = createItemForDataSource(_ds->getParent());
 		}
-		else if (_ds->type == pluginLib::patchDB::SourceType::Folder && !m_filter.empty())
-		{
-			parentNeeded = getTree().getRoot();
-		}
 		else
 		{
 			auto* nodeElem = _node->getElement();
@@ -160,13 +156,18 @@ namespace jucePluginEditorLib::patchManagerRml
 			}
 		}
 
-		_node->setParent(parentNeeded, [](const juceRmlUi::TreeNodePtr& _a, const juceRmlUi::TreeNodePtr& _b)
+		const auto sortByBankNumber = m_type == patchManager::GroupType::MidiBanks;
+
+		_node->setParent(parentNeeded, [sortByBankNumber](const juceRmlUi::TreeNodePtr& _a, const juceRmlUi::TreeNodePtr& _b)
 		{
 			auto* a = dynamic_cast<DatasourceNode*>(_a.get());
 			auto* b = dynamic_cast<DatasourceNode*>(_b.get());
 
 			if (!a || !b)
 				return false;
+
+			if (sortByBankNumber)
+				return a->getMidiBankNumber() < b->getMidiBankNumber();
 
 			return a->getText() < b->getText();
 		});
@@ -200,6 +201,8 @@ namespace jucePluginEditorLib::patchManagerRml
 	bool GroupNode::needsParentItem(const pluginLib::patchDB::DataSourceNodePtr& _ds) const
 	{
 		if (!m_filter.empty())
+			return false;
+		if (m_type == patchManager::GroupType::MidiBanks)
 			return false;
 		return _ds->hasParent() && _ds->origin != pluginLib::patchDB::DataSourceOrigin::Manual;
 	}
@@ -286,14 +289,17 @@ namespace jucePluginEditorLib::patchManagerRml
 
 		m_patchManager.getEditor().getRmlComponent()->addPostFrameCallback([node]
 		{
-			Rml::ScrollIntoViewOptions options;
+			if (auto* elem = node->getElement())
+			{
+				Rml::ScrollIntoViewOptions options;
 
-			options.vertical = Rml::ScrollAlignment::Nearest;
-			options.horizontal = Rml::ScrollAlignment::Nearest;
-			options.behavior = Rml::ScrollBehavior::Smooth;
-			options.parentage = Rml::ScrollParentage::All;
+				options.vertical = Rml::ScrollAlignment::Nearest;
+				options.horizontal = Rml::ScrollAlignment::Nearest;
+				options.behavior = Rml::ScrollBehavior::Smooth;
+				options.parentage = Rml::ScrollParentage::All;
 
-			node->getElement()->ScrollIntoView(options);
+				elem->ScrollIntoView(options);
+			}
 		});
 
 		return true;
@@ -539,7 +545,9 @@ namespace jucePluginEditorLib::patchManagerRml
 			{
 				pluginLib::patchDB::DataSource ds;
 				ds.name = file;
-				ds.type = pluginLib::patchDB::SourceType::File;
+				ds.type = juce::File(file).isDirectory()
+					? pluginLib::patchDB::SourceType::Folder
+					: pluginLib::patchDB::SourceType::File;
 				ds.origin = pluginLib::patchDB::DataSourceOrigin::Manual;
 
 				getDB().addDataSource(ds);

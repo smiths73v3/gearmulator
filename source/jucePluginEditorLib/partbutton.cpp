@@ -9,6 +9,9 @@
 #include "juceRmlUi/rmlEventListener.h"
 #include "juceRmlUi/rmlHelper.h"
 #include "juceRmlUi/rmlListEntry.h"
+#include "juceRmlUi/rmlMenu.h"
+
+#include "jucePluginLib/filetype.h"
 
 #include "patchmanager/patchmanager.h"
 #include "patchmanager/savepatchdesc.h"
@@ -54,6 +57,41 @@ namespace jucePluginEditorLib
 			onClick(_event);
 		});
 
+		juceRmlUi::EventListener::Add(_button, Rml::EventId::Mousedown, [this](Rml::Event& _event)
+		{
+			if (!juceRmlUi::helper::isContextMenu(_event))
+				return;
+
+			_event.StopPropagation();
+
+			auto* pm = m_editor.getPatchManager();
+			if (!pm)
+				return;
+
+			juceRmlUi::Menu menu;
+
+			menu.addEntry("Copy Patch to Clipboard", [this, pm]
+			{
+				const auto patch = pm->requestPatchForPart(m_part);
+				if (!patch)
+					return;
+				const auto text = pm->toString(patch, pluginLib::FileType::Empty, pluginLib::ExportType::Clipboard);
+				if (!text.empty())
+					juce::SystemClipboard::copyTextToClipboard(text);
+			});
+
+			const auto clipboardPatches = pm->getPatchesFromClipboard();
+			const bool canPaste = clipboardPatches.size() == 1;
+
+			menu.addEntry("Paste Patch from Clipboard", canPaste, false, [this, pm, clipboardPatches]
+			{
+				if (clipboardPatches.size() == 1)
+					pm->activatePatch(clipboardPatches.front(), m_part);
+			});
+
+			menu.runModal(_event);
+		});
+
 		DragSource::init(_button);
 		DragTarget::init(_button);
 
@@ -75,7 +113,10 @@ namespace jucePluginEditorLib
 			return !savePatchDesc->isPartValid() || savePatchDesc->getPart() != getPart();
 
 		const auto patch = getPatchFromDragSource(_event, _source);
-		return patch.first != nullptr;
+		if(patch.first != nullptr)
+			return true;
+
+		return DragTarget::canDrop(_event, _source);
 	}
 
 	bool PartButton::canDropFiles(const Rml::Event& _event, const std::vector<std::string>& _files)

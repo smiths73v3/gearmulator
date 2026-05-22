@@ -4,6 +4,8 @@
 #include "ControllerLinks.h"
 
 #include "ParameterNames.h"
+#include "SettingsDspAudioOsTIrus.h"
+#include "SettingsGuiOsTIrus.h"
 #include "VirusProcessor.h"
 #include "VirusController.h"
 
@@ -12,6 +14,7 @@
 
 #include "jucePluginEditorLib/patchmanager/savepatchdesc.h"
 #include "jucePluginEditorLib/pluginDataModel.h"
+#include "jucePluginEditorLib/settingsDeviceSpecific.h"
 
 #include "juceRmlPlugin/skinConverter/skinConverterOptions.h"
 
@@ -118,8 +121,11 @@ namespace genericVirusUI
 		if(presetLoad)
 			juceRmlUi::EventListener::AddClick(presetLoad, [this] { loadPreset(); });
 
-		juceRmlUi::EventListener::Add(m_presetName, Rml::EventId::Dblclick, [this](Rml::Event& _event)
+		juceRmlUi::EventListener::Add(m_presetName, Rml::EventId::Dblclick, [this](const Rml::Event& _event)
 		{
+			if (_event.GetTargetElement() != _event.GetCurrentElement())
+				return;
+
 			new juceRmlUi::InplaceEditor(m_presetName, Rml::StringUtilities::StripWhitespace(m_presetName->GetInnerRML()), [this](const std::string& _text)
 			{
 				auto text = Rml::StringUtilities::StripWhitespace(_text);
@@ -234,6 +240,17 @@ namespace genericVirusUI
 	jucePluginEditorLib::patchManager::PatchManager* VirusEditor::createPatchManager(Rml::Element* _parent)
 	{
 		return new PatchManager(*this, _parent);
+	}
+
+	std::unique_ptr<jucePluginEditorLib::SettingsDeviceSpecific> VirusEditor::createDeviceSpecificSettings(const std::string& _templateName, Rml::Element* _root)
+	{
+		if (_templateName == "tus_settings_gui_OsTIrus")
+			return std::make_unique<SettingsGuiOsTIrus>(this, _root);
+
+		if (_templateName == "tus_settings_dspaudio_OsTIrus")
+			return std::make_unique<SettingsDspAudioOsTIrus>(this, _root);
+
+		return Editor::createDeviceSpecificSettings(_templateName, _root);
 	}
 
 	void VirusEditor::onProgramChange(int _part)

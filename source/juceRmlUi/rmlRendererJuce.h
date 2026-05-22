@@ -43,8 +43,8 @@ namespace juceRmlUi
 		RendererJuce& operator=(const RendererJuce&) = delete;
 		RendererJuce& operator=(RendererJuce&&) = delete;
 
-		void beginFrame(juce::Graphics& _g);
-		void endFrame(const juce::Image& _renderTarget);
+		void beginFrame(juce::Graphics& _g, Rml::Vector2i _size);
+		void endFrame(const juce::Image& _renderTarget, float _renderScale = 1.0f);
 
 		Rml::CompiledGeometryHandle	CompileGeometry(Rml::Span<const Rml::Vertex> _vertices, Rml::Span<const int> _indices) override;
 		void ReleaseGeometry(Rml::CompiledGeometryHandle _geometry) override;
@@ -54,24 +54,37 @@ namespace juceRmlUi
 		Rml::TextureHandle GenerateTexture(Rml::Span<const uint8_t> _source, Rml::Vector2i _sourceDimensions) override;
 		void ReleaseTexture(Rml::TextureHandle _texture) override;
 
+		Rml::LayerHandle PushLayer() override;
+		void PopLayer() override;
+		Rml::TextureHandle SaveLayerAsTexture() override;
+		void CompositeLayers(Rml::LayerHandle _source, Rml::LayerHandle _destination, Rml::BlendMode _blendMode, Rml::Span<const Rml::CompiledFilterHandle> _filters) override;
+
 		void EnableScissorRegion(bool _enable) override;
 		void SetScissorRegion(Rml::Rectanglei _region) override;
+
+		void SetTransform(const Rml::Matrix4f* transform) override;
 
 		static constexpr bool isX64() { return IS_X64; }
 
 	private:
 		void pushClip();
 
+		rendererJuce::Image* allocateRenderTarget(int _width, int _height);
+		void releaseRenderTarget(rendererJuce::Image* _img);
+
 		bool m_scissorEnabled = false;
 		Rml::Rectanglei m_scissorRegion;
 
 		juce::Graphics* m_graphics = nullptr;
 
-		std::unique_ptr<rendererJuce::Image> m_renderTarget;
+		rendererJuce::Image* m_renderTarget = nullptr;
+		std::vector<rendererJuce::Image*> m_renderTargetStack;
+		std::vector<std::unique_ptr<rendererJuce::Image>> m_renderTargetPool;
 		std::unique_ptr<juce::Image> m_renderImage;
 
 		std::unordered_map<uint64_t, std::vector<std::unique_ptr<rendererJuce::Image>>> m_imagePool;
 
 		bool m_pushed = false;
+		Rml::Matrix4f m_transform;
 	};
 }

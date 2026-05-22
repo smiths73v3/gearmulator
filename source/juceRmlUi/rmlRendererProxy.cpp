@@ -75,34 +75,47 @@ namespace juceRmlUi
 		auto dummyHandle = createDummyHandle();
 
 		juce::Image image;
-
 		if (!loadImage(image, _textureDimensions, _source))
 			return {};
 
-		addRenderFunction(dummyHandle, [this, dummyHandle, img = std::move(image)]
+		auto cachedImage = std::make_shared<juce::Image>(std::move(image));
+
+		addRenderFunction(dummyHandle, [this, dummyHandle, source = _source, cachedImage]() mutable
 		{
 			if (exists(dummyHandle))
 				return;
 
+			juce::Image image;
+
+			if (cachedImage && cachedImage->isValid())
+			{
+				image = std::move(*cachedImage);
+				cachedImage.reset();
+			}
+			else
+			{
+				Rml::Vector2i dims;
+				if (!loadImage(image, dims, source))
+					return;
+			}
+
 			std::vector<uint8_t> buffer;
 
-			auto i = img;
-
-			auto w = i.getWidth();
-			auto h = i.getHeight();
+			auto w = image.getWidth();
+			auto h = image.getHeight();
 
 			const auto wNew = static_cast<int>(getValidTextureSize(w));
 			const auto hNew = static_cast<int>(getValidTextureSize(h));
 
 			if (wNew != w || hNew != h)
 			{
-				i = i.rescaled(wNew, hNew, juce::Graphics::mediumResamplingQuality);
+				image = image.rescaled(wNew, hNew, juce::Graphics::mediumResamplingQuality);
 
 				w = wNew;
 				h = hNew;
 			}
 
-			helper::toBuffer(core_instance, buffer, i);
+			helper::toBuffer(core_instance, buffer, image);
 
 			const auto handle = m_renderer->GenerateTexture(buffer, Rml::Vector2i(w, h));
 			addHandle<HandleTexture>(dummyHandle, handle);
@@ -121,6 +134,7 @@ namespace juceRmlUi
 		{
 			if (exists(dummyHandle))
 				return;
+
 			auto handle = m_renderer->GenerateTexture(source, _sourceDimensions);
 			addHandle<HandleTexture>(dummyHandle, handle);
 		});
@@ -195,6 +209,9 @@ namespace juceRmlUi
 
 	Rml::LayerHandle RendererProxy::PushLayer()
 	{
+		if (!m_config.canLayer)
+			return {};
+
 		auto dummyHandle = createDummyHandle();
 
 		addRenderFunction(dummyHandle, [this, dummyHandle]
@@ -210,6 +227,9 @@ namespace juceRmlUi
 
 	void RendererProxy::CompositeLayers(Rml::LayerHandle _source, Rml::LayerHandle _destination, Rml::BlendMode _blendMode, const Rml::Span<const Rml::CompiledFilterHandle> _filters)
 	{
+		if (!m_config.canLayer)
+			return;
+
 		auto f = copySpan(_filters);
 		addRenderFunction([this, _source, _destination, _blendMode, filters = std::move(f)]
 		{
@@ -241,6 +261,9 @@ namespace juceRmlUi
 
 	void RendererProxy::PopLayer()
 	{
+		if (!m_config.canLayer)
+			return;
+
 		addRenderFunction([this]
 		{
 			m_renderer->PopLayer();
@@ -252,6 +275,9 @@ namespace juceRmlUi
 
 	Rml::TextureHandle RendererProxy::SaveLayerAsTexture()
 	{
+		if (!m_config.canLayer)
+			return {};
+
 		auto dummyHandle = createDummyHandle();
 		addRenderFunction([this, dummyHandle]
 		{
@@ -265,6 +291,9 @@ namespace juceRmlUi
 
 	Rml::CompiledFilterHandle RendererProxy::SaveLayerAsMaskImage()
 	{
+		if (!m_config.canLayer || !m_config.canFilter)
+			return {};
+
 		auto dummyHandle = createDummyHandle();
 		addRenderFunction(dummyHandle, [this, dummyHandle]
 		{
@@ -278,6 +307,9 @@ namespace juceRmlUi
 
 	Rml::CompiledFilterHandle RendererProxy::CompileFilter(const Rml::String& _name, const Rml::Dictionary& _parameters)
 	{
+		if (!m_config.canFilter)
+			return {};
+
 		auto dummyHandle = createDummyHandle();
 		addRenderFunction(dummyHandle, [this, dummyHandle, name = _name, parameters = _parameters]
 		{
@@ -291,6 +323,9 @@ namespace juceRmlUi
 
 	void RendererProxy::ReleaseFilter(Rml::CompiledFilterHandle _filter)
 	{
+		if (!m_config.canFilter)
+			return;
+
 		addRenderFunction([this, _filter]
 		{
 			if (const auto realFilter = getRealHandle<HandleCompiledFilter>(_filter))
@@ -303,6 +338,9 @@ namespace juceRmlUi
 
 	Rml::CompiledShaderHandle RendererProxy::CompileShader(const Rml::String& _name, const Rml::Dictionary& _parameters)
 	{
+		if (!m_config.canShader)
+			return {};
+
 		auto dummyHandle = createDummyHandle();
 		addRenderFunction(dummyHandle, [this, dummyHandle, name = _name, parameters = _parameters]
 		{
@@ -316,6 +354,9 @@ namespace juceRmlUi
 
 	void RendererProxy::RenderShader(Rml::CompiledShaderHandle _shader, const Rml::CompiledGeometryHandle _geometry, const Rml::Vector2f _translation, const Rml::TextureHandle _texture)
 	{
+		if (!m_config.canShader)
+			return;
+
 		addRenderFunction([this, _shader, _geometry, _translation, _texture]
 		{
 			if (const auto realShader = getRealHandle<HandleCompiledShader>(_shader))
@@ -330,6 +371,9 @@ namespace juceRmlUi
 
 	void RendererProxy::ReleaseShader(Rml::CompiledShaderHandle _shader)
 	{
+		if (!m_config.canShader)
+			return;
+
 		addRenderFunction([this, _shader]
 		{
 			if (const auto realShader = getRealHandle<HandleCompiledShader>(_shader))
@@ -398,7 +442,7 @@ namespace juceRmlUi
 		void release(Rml::RenderInterface* _r, const RendererProxy::HandleLayer&              ) { _r->PopLayer(); }
 	}
 
-	void RendererProxy::setRenderer(Rml::RenderInterface* _renderer)
+	void RendererProxy::setRenderer(Rml::RenderInterface* _renderer, const RendererConfig& _config)
 	{
 		std::lock_guard lockR(m_mutexRender);
 
@@ -436,6 +480,7 @@ namespace juceRmlUi
 		}
 
 		m_renderer = _renderer;
+		m_config = _config;
 
 		if (m_renderer)
 		{
